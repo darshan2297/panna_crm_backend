@@ -207,8 +207,11 @@ class IntegrationService:
             cfg.last_sync_at = datetime.now(UTC)
             self.db.commit()
 
-        # If shop is closed, reject incoming order intake events
-        if cfg and not cfg.shop_open and event_type in ("ORDER_PLACED", "ORDER_CREATED"):
+        # If shop is closed (manual switch or schedule), reject incoming order intake events
+        from app.services.business_hours_service import resolve_shop_status
+
+        shop_status = resolve_shop_status(self.db)
+        if not shop_status["platforms"].get(platform_upper, True) and event_type in ("ORDER_PLACED", "ORDER_CREATED"):
             return {
                 "success": False,
                 "message": f"Shop is currently CLOSED on {platform_upper}. Incoming order rejected.",
@@ -227,15 +230,17 @@ class IntegrationService:
         platform = req.platform.upper()
         order_num = f"{platform[:3]}-{random.randint(100000, 999999)}"
 
-        # Reject incoming orders when shop is closed on that platform
-        closed_cfg = self.db.query(IntegrationConfig).filter(IntegrationConfig.platform == platform).first()
-        if closed_cfg and not closed_cfg.shop_open:
+        # Reject incoming orders when shop is closed on that platform (manual switch or schedule)
+        from app.services.business_hours_service import resolve_shop_status
+
+        shop_status = resolve_shop_status(self.db)
+        if not shop_status["platforms"].get(platform, True):
             from fastapi import HTTPException
             from fastapi import status as _status
 
             raise HTTPException(
                 status_code=_status.HTTP_403_FORBIDDEN,
-                detail=f"Shop is currently CLOSED on {platform}. Order rejected. Re-open the shop to accept orders.",
+                detail=f"Shop is currently CLOSED on {platform}. Order rejected. Re-open the shop or update business hours to accept orders.",
             )
 
         # Find or create customer

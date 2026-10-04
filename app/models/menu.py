@@ -34,6 +34,8 @@ class MenuItem(Base, TimestampMixin):
     spice_level = Column(String(30), default="MEDIUM", nullable=False)  # MILD, MEDIUM, SPICY, EXTRA_SPICY
     preparation_time_minutes = Column(Integer, default=25, nullable=False)
     image_url = Column(String(500), nullable=True)
+    badge = Column(String(50), nullable=True)  # e.g. "Best Seller", "New", "Premium", "Save 17%"
+    metadata_json = Column(Text, nullable=True)  # JSON: ingredients/allergens/nutrition for products, itemsSummary/includedItems for combos, extra_category for extras
     is_available = Column(Boolean, default=True, nullable=False, index=True)  # In Stock toggle
     is_active = Column(Boolean, default=True, nullable=False, index=True)  # Published toggle
     display_order = Column(Integer, default=0, nullable=False)
@@ -60,6 +62,7 @@ class MenuItemPortion(Base, TimestampMixin):
     serves_persons = Column(String(50), nullable=True)  # "1 Person", "1-2 Persons", "2-3 Persons"
     cost_price = Column(Float, default=0.0, nullable=False)  # Internal food prep cost
     base_price = Column(Float, nullable=False)  # Direct website / base selling price
+    original_price = Column(Float, nullable=True)  # Strikethrough price for combos
     zomato_price = Column(Float, nullable=False)  # Zomato price (+22% default markup)
     swiggy_price = Column(Float, nullable=False)  # Swiggy price (+20% default markup)
     is_available = Column(Boolean, default=True, nullable=False)

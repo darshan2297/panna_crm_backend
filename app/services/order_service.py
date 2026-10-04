@@ -412,14 +412,22 @@ class OrderService:
                 detail="Order must contain at least one item",
             )
 
-        # Block orders when the website shop is closed
-        from app.models.integration import IntegrationConfig
+        # Block orders when the website shop is closed (manual switch + schedule)
+        from app.services.business_hours_service import resolve_shop_status
 
-        website_cfg = self.db.query(IntegrationConfig).filter(IntegrationConfig.platform == "WEBSITE").first()
-        if website_cfg and not website_cfg.shop_open:
+        shop_status = resolve_shop_status(self.db)
+        if not shop_status["website_open"]:
+            hours = shop_status.get("business_hours")
+            detail = "We are currently CLOSED and not accepting online orders."
+            if hours and not hours.is_open:
+                detail = f"{hours.status_text} We are not accepting online orders right now."
+                if hours.next_open_text:
+                    detail += f" We open {hours.next_open_text.lower()}."
+            else:
+                detail += " Please check back during shop hours."
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="We are currently CLOSED and not accepting online orders. Please check back during shop hours.",
+                detail=detail,
             )
 
         db_items: list[OrderItem] = []
@@ -442,9 +450,12 @@ class OrderService:
             )
 
         subtotal = round(subtotal, 2)
-        taxable = max(0.0, subtotal - payload.discount)
-        tax = round(taxable * 0.05, 2)  # 5% GST on food
-        total_amount = round(taxable + payload.delivery_fee + tax, 2)
+        # Website prices are GST-inclusive. The storefront sends tax=0, so
+        # back-calculate the GST component from the grand total:
+        #   base = total / 1.05,  gst = total - base
+        # e.g. ₹629 total → ₹599.05 base + ₹29.95 GST (5%).
+        total_amount = round(subtotal - payload.discount + payload.delivery_fee, 2)
+        tax = round(total_amount - (total_amount / 1.05), 2)
 
         # Auto-create or link customer
         customer = self.repo.get_or_create_customer(

@@ -12,6 +12,7 @@ class MenuItemPortionBase(BaseModel):
     serves_persons: str | None = Field(None, max_length=50, description="e.g. 1-2 Persons")
     cost_price: float = Field(0.0, ge=0.0, description="Internal food cost in INR")
     base_price: float = Field(..., ge=0.0, description="Selling price on direct website / dine-in")
+    original_price: float | None = Field(None, ge=0.0, description="Strikethrough price (combos)")
     zomato_price: float | None = Field(None, ge=0.0, description="Selling price on Zomato (+22% default markup)")
     swiggy_price: float | None = Field(None, ge=0.0, description="Selling price on Swiggy (+20% default markup)")
     is_available: bool = Field(True, description="Availability toggle for this portion")
@@ -28,6 +29,7 @@ class MenuItemPortionUpdate(BaseModel):
     serves_persons: str | None = None
     cost_price: float | None = None
     base_price: float | None = None
+    original_price: float | None = None
     zomato_price: float | None = None
     swiggy_price: float | None = None
     is_available: bool | None = None
@@ -81,6 +83,8 @@ class MenuItemBase(BaseModel):
     spice_level: str = Field("MEDIUM", description="MILD, MEDIUM, SPICY, EXTRA_SPICY")
     preparation_time_minutes: int = Field(25, ge=5, le=120)
     image_url: str | None = Field(None, max_length=500)
+    badge: str | None = Field(None, max_length=50, description="Badge tag e.g. Best Seller, New, Premium, Save 17%")
+    metadata_json: str | None = Field(None, description="JSON details for website rendering")
     is_available: bool = Field(True, description="In Stock toggle")
     is_active: bool = Field(True, description="Published toggle")
     display_order: int = Field(0, ge=0)
@@ -98,6 +102,8 @@ class MenuItemUpdate(BaseModel):
     spice_level: str | None = None
     preparation_time_minutes: int | None = None
     image_url: str | None = None
+    badge: str | None = None
+    metadata_json: str | None = None
     is_available: bool | None = None
     is_active: bool | None = None
     display_order: int | None = None

@@ -14,4 +14,6 @@ pytest>=8.2.0
 pytest-asyncio>=0.23.0
 python-multipart>=0.0.9
 python-socketio>=5.11.0
+# IANA timezone database for zoneinfo (Windows has no system tzdata)
+tzdata>=2024.1
 ruff>=0.6.0

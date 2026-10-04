@@ -6,6 +6,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+import app.models  # noqa: F401  # ensure every SQLAlchemy model is registered on Base
 from app.api.v1.router import api_router
 from app.core.config import settings
 from app.core.database import Base, SessionLocal, engine
@@ -37,6 +38,31 @@ async def lifespan(app: FastAPI):
                 with engine.begin() as _conn:
                     _conn.execute(_text("ALTER TABLE integration_configs ADD COLUMN shop_open BOOLEAN DEFAULT TRUE"))
                 logger.info("Auto-migration: added shop_open column to integration_configs")
+
+        if "business_hours_config" in _insp.get_table_names():
+            _bh_cols = [c["name"] for c in _insp.get_columns("business_hours_config")]
+            if "force_open_now" not in _bh_cols:
+                with engine.begin() as _conn:
+                    _conn.execute(_text("ALTER TABLE business_hours_config ADD COLUMN force_open_now BOOLEAN DEFAULT FALSE"))
+                logger.info("Auto-migration: added force_open_now column to business_hours_config")
+
+        if "menu_items" in _insp.get_table_names():
+            _mi_cols = [c["name"] for c in _insp.get_columns("menu_items")]
+            if "badge" not in _mi_cols:
+                with engine.begin() as _conn:
+                    _conn.execute(_text("ALTER TABLE menu_items ADD COLUMN badge VARCHAR(50)"))
+                logger.info("Auto-migration: added badge column to menu_items")
+            if "metadata_json" not in _mi_cols:
+                with engine.begin() as _conn:
+                    _conn.execute(_text("ALTER TABLE menu_items ADD COLUMN metadata_json TEXT"))
+                logger.info("Auto-migration: added metadata_json column to menu_items")
+
+        if "menu_item_portions" in _insp.get_table_names():
+            _mp_cols = [c["name"] for c in _insp.get_columns("menu_item_portions")]
+            if "original_price" not in _mp_cols:
+                with engine.begin() as _conn:
+                    _conn.execute(_text("ALTER TABLE menu_item_portions ADD COLUMN original_price FLOAT"))
+                logger.info("Auto-migration: added original_price column to menu_item_portions")
     except Exception as e:
         logger.error(f"Auto-migration check failed: {e}", exc_info=True)
 
@@ -46,6 +72,10 @@ async def lifespan(app: FastAPI):
         auth_service = AuthService(db)
         auth_service.init_default_users()
         seed_dashboard_data(db)
+        from app.services.website_seed import seed_storefront_config, seed_website_menu
+
+        seed_storefront_config(db)
+        seed_website_menu(db)
     except Exception as e:
         logger.error(f"Error during database initialization: {e}", exc_info=True)
     finally:
@@ -116,6 +146,14 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
 
 # Register API v1 Router
 app.include_router(api_router, prefix=settings.API_V1_STR)
+
+# Static media (uploaded images for the public website)
+import os as _os
+
+from fastapi.staticfiles import StaticFiles
+
+_os.makedirs(_os.path.join(_os.getcwd(), "media", "uploads"), exist_ok=True)
+app.mount("/media", StaticFiles(directory=_os.path.join(_os.getcwd(), "media")), name="media")
 
 
 @app.get("/", tags=["Root"])

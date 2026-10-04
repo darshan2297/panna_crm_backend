@@ -1,6 +1,11 @@
 from app.core.database import Base
 from app.models.audit_log import AuditLog
 from app.models.base import TimestampMixin
+from app.models.business_hours import (
+    BusinessHoliday,
+    BusinessHourDay,
+    BusinessHoursConfig,
+)
 from app.models.customer import Customer
 from app.models.integration import (
     IntegrationConfig,
@@ -27,6 +32,7 @@ from app.models.packaging import (
     PackagingTransaction,
     PackagingTransactionType,
 )
+from app.models.storefront import PaymentMethodConfig, PromoCode, StorefrontConfig
 from app.models.restock_order import (
     RestockOrder,
     RestockOrderItem,
@@ -47,6 +53,9 @@ __all__ = [
     "PaymentStatus",
     "OrderStatusHistory",
     "Customer",
+    "BusinessHoursConfig",
+    "BusinessHourDay",
+    "BusinessHoliday",
     "InventoryItem",
     "InventoryCategory",
     "InventoryTransaction",
@@ -74,4 +83,7 @@ __all__ = [
     "IntegrationPlatform",
     "IntegrationStatus",
     "IntegrationEnvironment",
+    "StorefrontConfig",
+    "PaymentMethodConfig",
+    "PromoCode",
 ]

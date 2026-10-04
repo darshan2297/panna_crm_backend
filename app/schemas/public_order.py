@@ -24,6 +24,7 @@ class WebsiteOrderCreateRequest(BaseModel):
     payment_method: str = Field("COD", description="Payment method: COD, ONLINE_UPI, CARD")
     delivery_fee: float = Field(0.0, ge=0.0)
     discount: float = Field(0.0, ge=0.0)
+    tax: float = Field(0.0, ge=0.0, description="Tax amount already included in the website order total")
     notes: str | None = Field(None, max_length=500, description="Special cooking or delivery instructions")
 
 

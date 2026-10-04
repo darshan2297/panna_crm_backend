@@ -128,6 +128,8 @@ class MenuService:
             spice_level=item.spice_level,
             preparation_time_minutes=item.preparation_time_minutes,
             image_url=item.image_url,
+            badge=item.badge,
+            metadata_json=item.metadata_json,
             is_available=item.is_available,
             is_active=item.is_active,
             display_order=item.display_order,
@@ -209,6 +211,8 @@ class MenuService:
             spice_level=payload.spice_level.upper() if payload.spice_level else "MEDIUM",
             preparation_time_minutes=payload.preparation_time_minutes,
             image_url=payload.image_url.strip() if payload.image_url else None,
+            badge=payload.badge.strip() if payload.badge else None,
+            metadata_json=payload.metadata_json,
             is_available=payload.is_available,
             is_active=payload.is_active,
             display_order=payload.display_order,
@@ -229,6 +233,7 @@ class MenuService:
                 serves_persons=p.serves_persons.strip() if p.serves_persons else None,
                 cost_price=p.cost_price,
                 base_price=p.base_price,
+                original_price=p.original_price,
                 zomato_price=zomato_price,
                 swiggy_price=swiggy_price,
                 is_available=p.is_available,
@@ -257,6 +262,10 @@ class MenuService:
             item.preparation_time_minutes = payload.preparation_time_minutes
         if payload.image_url is not None:
             item.image_url = payload.image_url.strip() if payload.image_url else None
+        if payload.badge is not None:
+            item.badge = payload.badge.strip() if payload.badge else None
+        if payload.metadata_json is not None:
+            item.metadata_json = payload.metadata_json
         if payload.is_available is not None:
             item.is_available = payload.is_available
         if payload.is_active is not None:
@@ -292,6 +301,8 @@ class MenuService:
                             p.zomato_price = round(p.base_price * 1.22)
                         if swiggy_price is None:
                             p.swiggy_price = round(p.base_price * 1.20)
+                    if p_in.original_price is not None:
+                        p.original_price = p_in.original_price
                     if zomato_price is not None:
                         p.zomato_price = zomato_price
                     if swiggy_price is not None:
@@ -310,6 +321,7 @@ class MenuService:
                         serves_persons=p_in.serves_persons.strip() if p_in.serves_persons else None,
                         cost_price=p_in.cost_price or 0.0,
                         base_price=base_price,
+                        original_price=p_in.original_price,
                         zomato_price=zom_p,
                         swiggy_price=swg_p,
                         is_available=p_in.is_available if p_in.is_available is not None else True,

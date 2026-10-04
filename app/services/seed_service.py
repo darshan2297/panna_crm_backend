@@ -660,7 +660,7 @@ def seed_dashboard_data(db: Session) -> None:
         logger.info("Successfully seeded historical and current operational orders.")
 
     # Seed initial menu categories and items if empty
-    seed_menu_data(db)
+    # Menu catalog is seeded with the real website menu by website_seed.seed_website_menu(db)
 
     # Seed initial packaging items, stocks, and rules if empty
     seed_packaging_data(db)

@@ -77,19 +77,87 @@ def payment_status_webhook(
 
 @router.get("/shop-status")
 def get_shop_status(db: Session = Depends(get_db)):
-    """Public Endpoint: Report open/closed state of each sales channel."""
-    from app.models.integration import IntegrationConfig
+    """Public Endpoint: Report open/closed state of each sales channel.
 
-    configs = db.query(IntegrationConfig).all()
-    platforms = {c.platform: bool(c.shop_open) for c in configs}
+    Combines the per-platform manual master switch with the global weekly
+    schedule and holiday calendar configured in the CRM.
+    """
+    from app.services.business_hours_service import resolve_shop_status
+
+    status = resolve_shop_status(db)
     return APIResponse(
         success=True,
         message="Shop status retrieved successfully",
+        data=status,
+    )
+
+
+@router.get("/config")
+def get_public_config(db: Session = Depends(get_db)):
+    """Public Endpoint: Website storefront display configuration (images, toggles, delivery)."""
+    from app.schemas.storefront import StorefrontConfigResponse
+    from app.services.storefront_service import StorefrontService
+
+    service = StorefrontService(db)
+    cfg = service.get_config()
+    return APIResponse(
+        success=True,
+        message="Storefront config retrieved successfully",
+        data=StorefrontConfigResponse.model_validate(cfg),
+    )
+
+
+@router.get("/payment-methods")
+def get_public_payment_methods(db: Session = Depends(get_db)):
+    """Public Endpoint: Enabled payment methods for the checkout page."""
+    from app.schemas.storefront import PaymentMethodResponse
+    from app.services.storefront_service import StorefrontService
+
+    service = StorefrontService(db)
+    data = [PaymentMethodResponse.model_validate(pm) for pm in service.list_payment_methods() if pm.enabled]
+    return APIResponse(success=True, message="Payment methods retrieved successfully", data=data)
+
+
+@router.get("/promocodes")
+def get_public_promocodes(db: Session = Depends(get_db)):
+    """Public Endpoint: Active promo codes for the website checkout."""
+    from app.schemas.storefront import PromoCodeResponse
+    from app.services.storefront_service import StorefrontService
+
+    service = StorefrontService(db)
+    data = [PromoCodeResponse.model_validate(pc) for pc in service.list_promocodes() if pc.active]
+    return APIResponse(success=True, message="Promo codes retrieved successfully", data=data)
+
+
+@router.get("/menu-data")
+def get_public_menu_data(db: Session = Depends(get_db)):
+    """Public Endpoint: Full website menu (products, combos, extras) in storefront shape."""
+    from app.services.storefront_service import StorefrontService
+
+    service = StorefrontService(db)
+    return APIResponse(
+        success=True,
+        message="Website menu retrieved successfully",
+        data=service.get_public_menu_data(),
+    )
+
+
+@router.get("/business-hours")
+def get_public_business_hours(db: Session = Depends(get_db)):
+    """Public Endpoint: Storefront operating hours, holiday message and next opening."""
+    from app.services.business_hours_service import BusinessHoursService, resolve_shop_status
+
+    service = BusinessHoursService(db)
+    public = service.resolve_public()
+    status = resolve_shop_status(db)
+    config = service.get_config()
+    return APIResponse(
+        success=True,
+        message="Business hours retrieved successfully",
         data={
-            "platforms": platforms,
-            "website_open": platforms.get("WEBSITE", True),
-            "zomato_open": platforms.get("ZOMATO", True),
-            "swiggy_open": platforms.get("SWIGGY", True),
+            **public.model_dump(),
+            "website_open": status["website_open"],
+            "holiday_message": config.holiday_message,
         },
     )
 
