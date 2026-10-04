@@ -1,0 +1,42 @@
+from fastapi import APIRouter
+
+from app.api.v1.analytics.router import router as analytics_router
+from app.api.v1.audit.router import router as audit_router
+from app.api.v1.auth.router import router as auth_router
+from app.api.v1.customers.router import router as customers_router
+from app.api.v1.dashboard.router import router as dashboard_router
+from app.api.v1.health.router import router as health_router
+from app.api.v1.integrations.router import router as integrations_router
+from app.api.v1.inventory.router import router as inventory_router
+from app.api.v1.menu.router import router as menu_router
+from app.api.v1.notifications.router import router as notifications_router
+from app.api.v1.orders.router import router as orders_router
+from app.api.v1.packaging.router import router as packaging_router
+from app.api.v1.public.router import router as public_router
+from app.api.v1.restock.router import router as restock_router
+from app.api.v1.users.router import router as users_router
+
+api_router = APIRouter()
+
+# Core, Phase 2–9 Modules
+api_router.include_router(health_router)
+api_router.include_router(auth_router)
+api_router.include_router(dashboard_router)
+api_router.include_router(users_router)
+api_router.include_router(orders_router)
+api_router.include_router(public_router)
+api_router.include_router(menu_router)
+api_router.include_router(inventory_router)
+api_router.include_router(packaging_router)
+api_router.include_router(notifications_router)
+api_router.include_router(restock_router)
+# Phase 10: Customer CRM
+api_router.include_router(customers_router)
+# Phase 11 & 12: Analytics, Reports & Costing
+api_router.include_router(analytics_router)
+# Phase 13: Zomato & Swiggy Integrations
+api_router.include_router(integrations_router)
+# Phase 14: Audit, Security & Hardening
+api_router.include_router(audit_router)
+
+

@@ -1,0 +1,40 @@
+version: '3.8'
+
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: panna_crm_mysql
+    restart: always
+    environment:
+      MYSQL_DATABASE: panna_crm
+      MYSQL_USER: panna_user
+      MYSQL_PASSWORD: panna_secure_pass
+      MYSQL_ROOT_PASSWORD: panna_root_pass
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build: .
+    container_name: panna_crm_backend
+    restart: always
+    environment:
+      DATABASE_URL: mysql+pymysql://panna_user:panna_secure_pass@mysql:3306/panna_crm
+      SECRET_KEY: panna_super_secret_jwt_key_change_in_production_123456789
+      ENVIRONMENT: production
+      DEBUG: "False"
+      BACKEND_CORS_ORIGINS: '["http://localhost:3000","http://localhost:3001"]'
+    ports:
+      - "8000:8000"
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+volumes:
+  mysql_data:
