@@ -1,4 +1,3 @@
-
 from fastapi import APIRouter, Depends, Path, status
 from sqlalchemy.orm import Session
 
@@ -76,6 +75,25 @@ def payment_status_webhook(
     )
 
 
+@router.get("/shop-status")
+def get_shop_status(db: Session = Depends(get_db)):
+    """Public Endpoint: Report open/closed state of each sales channel."""
+    from app.models.integration import IntegrationConfig
+
+    configs = db.query(IntegrationConfig).all()
+    platforms = {c.platform: bool(c.shop_open) for c in configs}
+    return APIResponse(
+        success=True,
+        message="Shop status retrieved successfully",
+        data={
+            "platforms": platforms,
+            "website_open": platforms.get("WEBSITE", True),
+            "zomato_open": platforms.get("ZOMATO", True),
+            "swiggy_open": platforms.get("SWIGGY", True),
+        },
+    )
+
+
 @router.get("/orders/gateway/health")
 def website_gateway_health() -> dict[str, str]:
     """Lightweight ping to verify public website order ingestion gateway readiness."""
@@ -94,6 +112,7 @@ def get_public_menu(db: Session = Depends(get_db)):
     Returns active categories with currently available items and portions.
     """
     from app.services.menu_service import MenuService
+
     service = MenuService(db)
     categories = service.list_categories(is_active=True)
     items = service.list_items(is_active=True, is_available=True)
@@ -114,4 +133,3 @@ def get_public_menu(db: Session = Depends(get_db)):
         message="Public menu retrieved successfully",
         data=categorized,
     )
-

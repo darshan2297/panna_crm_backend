@@ -34,7 +34,7 @@ def get_sales_trend(
 def get_top_items(
     days: int = Query(30, ge=1, le=365),
     limit: int = Query(10, ge=1, le=50),
-    sort_by: str = Query("revenue", regex="^(revenue|quantity)$"),
+    sort_by: str = Query("revenue", pattern="^(revenue|quantity)$"),
     current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db),
 ):
@@ -98,7 +98,7 @@ def get_pl_summary(
 
 @router.get("/export")
 def export_analytics_csv(
-    dataset: str = Query("sales", regex="^(sales|top_items|costing|platforms)$"),
+    dataset: str = Query("sales", pattern="^(sales|top_items|costing|platforms)$"),
     days: int = Query(30, ge=1, le=365),
     current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db),

@@ -37,7 +37,9 @@ def get_inventory_summary(
 @router.get("/items", response_model=APIResponse[PaginatedResponse[InventoryItemResponse]])
 def list_inventory_items(
     category: str | None = Query(None, description="Filter by category (GRAIN, MEAT, DAIRY, etc.)"),
-    status_filter: str | None = Query(None, description="Filter by status (IN_STOCK, LOW_STOCK, CRITICAL_STOCK, OUT_OF_STOCK)"),
+    status_filter: str | None = Query(
+        None, description="Filter by status (IN_STOCK, LOW_STOCK, CRITICAL_STOCK, OUT_OF_STOCK)"
+    ),
     search: str | None = Query(None, description="Search query by item name, SKU, or supplier"),
     page: int = Query(1, ge=1, description="Page number"),
     page_size: int = Query(50, ge=1, le=200, description="Items per page"),
@@ -152,7 +154,9 @@ def adjust_inventory_stock(
 @router.get("/transactions", response_model=APIResponse[PaginatedResponse[InventoryTransactionResponse]])
 def list_inventory_transactions(
     item_id: int | None = Query(None, description="Filter transactions by specific inventory item ID"),
-    transaction_type: str | None = Query(None, description="Filter by type (STOCK_IN, STOCK_OUT, WASTAGE, AUDIT_CORRECTION)"),
+    transaction_type: str | None = Query(
+        None, description="Filter by type (STOCK_IN, STOCK_OUT, WASTAGE, AUDIT_CORRECTION)"
+    ),
     page: int = Query(1, ge=1, description="Page number"),
     page_size: int = Query(50, ge=1, le=200, description="Transactions per page"),
     db: Session = Depends(get_db),

@@ -85,13 +85,7 @@ class OrderRepository(BaseRepository[Order]):
             query = query.filter(Order.created_at <= date_to)
 
         total = query.count()
-        orders = (
-            query.options(joinedload(Order.items))
-            .order_by(desc(Order.created_at))
-            .offset(skip)
-            .limit(limit)
-            .all()
-        )
+        orders = query.options(joinedload(Order.items)).order_by(desc(Order.created_at)).offset(skip).limit(limit).all()
         return orders, total
 
     def get_status_counts(
@@ -119,9 +113,7 @@ class OrderRepository(BaseRepository[Order]):
         total_orders = filtered_query.with_entities(func.count(Order.id)).scalar() or 0
 
         status_rows = (
-            filtered_query.with_entities(Order.order_status, func.count(Order.id))
-            .group_by(Order.order_status)
-            .all()
+            filtered_query.with_entities(Order.order_status, func.count(Order.id)).group_by(Order.order_status).all()
         )
         status_map = {row[0]: row[1] for row in status_rows}
 

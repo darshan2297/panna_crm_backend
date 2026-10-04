@@ -1,4 +1,3 @@
-
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -101,6 +100,7 @@ def create_restock_order(
         message=f"Purchase Order {order.po_number} created successfully",
         data=RestockOrderOut.model_validate(order),
     )
+
 
 @router.get("/orders/{id}", response_model=APIResponse[RestockOrderOut])
 def get_restock_order_details(

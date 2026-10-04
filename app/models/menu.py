@@ -15,7 +15,9 @@ class MenuCategory(Base, TimestampMixin):
     is_active = Column(Boolean, default=True, nullable=False, index=True)
 
     # Relationships
-    items = relationship("MenuItem", back_populates="category", cascade="all, delete-orphan", order_by="MenuItem.display_order")
+    items = relationship(
+        "MenuItem", back_populates="category", cascade="all, delete-orphan", order_by="MenuItem.display_order"
+    )
 
     def __repr__(self) -> str:
         return f"<MenuCategory(id={self.id}, name='{self.name}', items={len(self.items) if self.items else 0})>"
@@ -38,7 +40,12 @@ class MenuItem(Base, TimestampMixin):
 
     # Relationships
     category = relationship("MenuCategory", back_populates="items")
-    portions = relationship("MenuItemPortion", back_populates="menu_item", cascade="all, delete-orphan", order_by="MenuItemPortion.base_price")
+    portions = relationship(
+        "MenuItemPortion",
+        back_populates="menu_item",
+        cascade="all, delete-orphan",
+        order_by="MenuItemPortion.base_price",
+    )
 
     def __repr__(self) -> str:
         return f"<MenuItem(id={self.id}, name='{self.name}', veg={self.is_veg}, available={self.is_available})>"

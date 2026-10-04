@@ -108,13 +108,19 @@ class RestockService:
         low_count = sum(1 for s in suggestions if s.status == "LOW_STOCK")
         total_inv = sum(s.estimated_cost for s in suggestions)
 
-        open_pos = db.query(func.count(RestockOrder.id)).filter(
-            RestockOrder.status.in_([RestockOrderStatus.DRAFT.value, RestockOrderStatus.ORDERED.value])
-        ).scalar() or 0
+        open_pos = (
+            db.query(func.count(RestockOrder.id))
+            .filter(RestockOrder.status.in_([RestockOrderStatus.DRAFT.value, RestockOrderStatus.ORDERED.value]))
+            .scalar()
+            or 0
+        )
 
-        received_pos = db.query(func.count(RestockOrder.id)).filter(
-            RestockOrder.status == RestockOrderStatus.RECEIVED.value
-        ).scalar() or 0
+        received_pos = (
+            db.query(func.count(RestockOrder.id))
+            .filter(RestockOrder.status == RestockOrderStatus.RECEIVED.value)
+            .scalar()
+            or 0
+        )
 
         return RestockSummary(
             total_deficit_items=len(suggestions),
@@ -162,7 +168,9 @@ class RestockService:
                 unit = pkg.unit
                 curr_stock = pkg.current_stock
                 reorder_thresh = pkg.reorder_level
-                suggested_qty = suggest_reorder_qty(pkg.current_stock, pkg.reorder_level, min_qty=10.0, whole_units=True)
+                suggested_qty = suggest_reorder_qty(
+                    pkg.current_stock, pkg.reorder_level, min_qty=10.0, whole_units=True
+                )
                 cost_per_unit = item_in.unit_cost if item_in.unit_cost is not None else pkg.purchase_cost
 
             line_cost = round(item_in.ordered_quantity * cost_per_unit, 2)

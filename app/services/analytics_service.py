@@ -36,11 +36,7 @@ class AnalyticsService:
         start_date_naive = start_date.replace(hour=0, minute=0, second=0, microsecond=0, tzinfo=None)
 
         # Query all orders in window
-        orders = (
-            self.db.query(Order)
-            .filter(Order.created_at >= start_date_naive)
-            .all()
-        )
+        orders = self.db.query(Order).filter(Order.created_at >= start_date_naive).all()
 
         # Bucket by day YYYY-MM-DD
         day_buckets: dict[str, dict[str, Any]] = {}
@@ -156,11 +152,7 @@ class AnalyticsService:
         start_date = datetime.now(UTC) - timedelta(days=days)
         start_date_naive = start_date.replace(tzinfo=None)
 
-        orders = (
-            self.db.query(Order)
-            .filter(Order.created_at >= start_date_naive)
-            .all()
-        )
+        orders = self.db.query(Order).filter(Order.created_at >= start_date_naive).all()
 
         stats = {
             "WEBSITE": {"count": 0, "rev": 0.0, "name": "Direct Website", "rate": 0.0},
@@ -225,11 +217,7 @@ class AnalyticsService:
         start_date = datetime.now(UTC) - timedelta(days=days)
         start_date_naive = start_date.replace(tzinfo=None)
 
-        orders = (
-            self.db.query(Order)
-            .filter(Order.created_at >= start_date_naive)
-            .all()
-        )
+        orders = self.db.query(Order).filter(Order.created_at >= start_date_naive).all()
 
         day_names = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
         matrix = {(d, h): {"count": 0, "rev": 0.0} for d in range(7) for h in range(24)}
@@ -317,11 +305,7 @@ class AnalyticsService:
 
     def get_dish_costing(self) -> DishCostingResponse:
         # Load all dishes with portions
-        portions = (
-            self.db.query(MenuItemPortion)
-            .join(MenuItem, MenuItem.id == MenuItemPortion.menu_item_id)
-            .all()
-        )
+        portions = self.db.query(MenuItemPortion).join(MenuItem, MenuItem.id == MenuItemPortion.menu_item_id).all()
 
         dishes_list: list[DishMarginMetric] = []
         low_count = 0
@@ -373,11 +357,7 @@ class AnalyticsService:
         start_date = datetime.now(UTC) - timedelta(days=days)
         start_date_naive = start_date.replace(tzinfo=None)
 
-        orders = (
-            self.db.query(Order)
-            .filter(Order.created_at >= start_date_naive)
-            .all()
-        )
+        orders = self.db.query(Order).filter(Order.created_at >= start_date_naive).all()
 
         gross_rev = sum(float(o.total_amount or 0.0) for o in orders)
         order_count = len(orders)
@@ -417,26 +397,93 @@ class AnalyticsService:
 
         if dataset == "sales":
             trend = self.get_sales_trend(days)
-            writer.writerow(["Date", "Day", "Total Revenue", "Website Revenue", "Zomato Revenue", "Swiggy Revenue", "Orders", "AOV"])
+            writer.writerow(
+                ["Date", "Day", "Total Revenue", "Website Revenue", "Zomato Revenue", "Swiggy Revenue", "Orders", "AOV"]
+            )
             for item in trend.items:
-                writer.writerow([item.date, item.day, item.total_revenue, item.website_revenue, item.zomato_revenue, item.swiggy_revenue, item.order_count, item.avg_order_value])
+                writer.writerow(
+                    [
+                        item.date,
+                        item.day,
+                        item.total_revenue,
+                        item.website_revenue,
+                        item.zomato_revenue,
+                        item.swiggy_revenue,
+                        item.order_count,
+                        item.avg_order_value,
+                    ]
+                )
 
         elif dataset == "top_items":
             top = self.get_top_items(days=days, limit=50)
             writer.writerow(["Dish Name", "Category", "Quantity Sold", "Total Revenue", "Revenue Share %"])
             for item in top.items:
-                writer.writerow([item.item_name, item.category_name, item.quantity_sold, item.total_revenue, item.percentage_of_total])
+                writer.writerow(
+                    [
+                        item.item_name,
+                        item.category_name,
+                        item.quantity_sold,
+                        item.total_revenue,
+                        item.percentage_of_total,
+                    ]
+                )
 
         elif dataset == "costing":
             costing = self.get_dish_costing()
-            writer.writerow(["Dish & Portion", "Category", "Selling Price", "Food Cost", "Packaging Cost", "Avg Commission", "Net Profit", "Gross Margin %", "Low Margin Alert"])
+            writer.writerow(
+                [
+                    "Dish & Portion",
+                    "Category",
+                    "Selling Price",
+                    "Food Cost",
+                    "Packaging Cost",
+                    "Avg Commission",
+                    "Net Profit",
+                    "Gross Margin %",
+                    "Low Margin Alert",
+                ]
+            )
             for d in costing.dishes:
-                writer.writerow([d.item_name, d.category_name, d.selling_price, d.food_cost, d.packaging_cost, d.avg_commission, d.net_margin_amount, d.gross_margin_pct, "YES" if d.is_low_margin else "NO"])
+                writer.writerow(
+                    [
+                        d.item_name,
+                        d.category_name,
+                        d.selling_price,
+                        d.food_cost,
+                        d.packaging_cost,
+                        d.avg_commission,
+                        d.net_margin_amount,
+                        d.gross_margin_pct,
+                        "YES" if d.is_low_margin else "NO",
+                    ]
+                )
 
         else:  # platforms
             breakdown = self.get_platform_breakdown(days)
-            writer.writerow(["Platform", "Gross Revenue", "Orders", "Avg Order Value", "Revenue Share %", "Commission Rate %", "Commission Deducted", "Net Revenue"])
+            writer.writerow(
+                [
+                    "Platform",
+                    "Gross Revenue",
+                    "Orders",
+                    "Avg Order Value",
+                    "Revenue Share %",
+                    "Commission Rate %",
+                    "Commission Deducted",
+                    "Net Revenue",
+                ]
+            )
             for p in breakdown.platforms:
-                writer.writerow([p.display_name, p.revenue, p.order_count, p.avg_order_value, p.revenue_share_pct, p.commission_rate_pct, p.commission_amount, p.net_revenue])
+                writer.writerow(
+                    [
+                        p.display_name,
+                        p.revenue,
+                        p.order_count,
+                        p.avg_order_value,
+                        p.revenue_share_pct,
+                        p.commission_rate_pct,
+                        p.commission_amount,
+                        p.net_revenue,
+                    ]
+                )
 
         return output.getvalue()

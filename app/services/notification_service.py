@@ -51,7 +51,9 @@ class NotificationService:
                     status = classify_stock(item.current_stock, item.minimum_stock, item.reorder_level)
                     is_critical = status in ("CRITICAL", "OUT_OF_STOCK")
                     is_zero = status == "OUT_OF_STOCK"
-                    severity = NotificationSeverity.CRITICAL.value if is_critical else NotificationSeverity.WARNING.value
+                    severity = (
+                        NotificationSeverity.CRITICAL.value if is_critical else NotificationSeverity.WARNING.value
+                    )
                     ntype = (
                         NotificationType.OUT_OF_STOCK.value
                         if is_zero
@@ -75,7 +77,11 @@ class NotificationService:
                         "minimum_stock": item.minimum_stock,
                         "suggested_qty": suggest_reorder_qty(item.current_stock, item.reorder_level, min_qty=1.0),
                         "supplier": item.supplier or "Local Mandi / Agro Vendor",
-                        "estimated_cost": round(suggest_reorder_qty(item.current_stock, item.reorder_level, min_qty=1.0) * item.purchase_price, 2),
+                        "estimated_cost": round(
+                            suggest_reorder_qty(item.current_stock, item.reorder_level, min_qty=1.0)
+                            * item.purchase_price,
+                            2,
+                        ),
                     }
 
                     notif = Notification(
@@ -110,7 +116,9 @@ class NotificationService:
                     status = classify_stock(item.current_stock, item.minimum_stock, item.reorder_level)
                     is_critical = status in ("CRITICAL", "OUT_OF_STOCK")
                     is_zero = status == "OUT_OF_STOCK"
-                    severity = NotificationSeverity.CRITICAL.value if is_critical else NotificationSeverity.WARNING.value
+                    severity = (
+                        NotificationSeverity.CRITICAL.value if is_critical else NotificationSeverity.WARNING.value
+                    )
                     ntype = (
                         NotificationType.OUT_OF_STOCK.value
                         if is_zero
@@ -132,9 +140,15 @@ class NotificationService:
                         "current_stock": item.current_stock,
                         "reorder_level": item.reorder_level,
                         "minimum_stock": item.minimum_stock,
-                        "suggested_qty": suggest_reorder_qty(item.current_stock, item.reorder_level, min_qty=10.0, whole_units=True),
+                        "suggested_qty": suggest_reorder_qty(
+                            item.current_stock, item.reorder_level, min_qty=10.0, whole_units=True
+                        ),
                         "supplier": item.supplier or "EcoPackaging India",
-                        "estimated_cost": round(suggest_reorder_qty(item.current_stock, item.reorder_level, min_qty=10.0, whole_units=True) * item.purchase_cost, 2),
+                        "estimated_cost": round(
+                            suggest_reorder_qty(item.current_stock, item.reorder_level, min_qty=10.0, whole_units=True)
+                            * item.purchase_cost,
+                            2,
+                        ),
                     }
 
                     notif = Notification(
@@ -188,26 +202,48 @@ class NotificationService:
     def get_summary(db: Session) -> NotificationSummary:
         total = db.query(func.count(Notification.id)).scalar() or 0
         unread = db.query(func.count(Notification.id)).filter(Notification.is_read == False).scalar() or 0
-        critical = db.query(func.count(Notification.id)).filter(
-            Notification.severity == NotificationSeverity.CRITICAL.value,
-            Notification.is_read == False,
-        ).scalar() or 0
-        warning = db.query(func.count(Notification.id)).filter(
-            Notification.severity == NotificationSeverity.WARNING.value,
-            Notification.is_read == False,
-        ).scalar() or 0
-        stock_alerts = db.query(func.count(Notification.id)).filter(
-            Notification.type.in_([
-                NotificationType.LOW_STOCK.value,
-                NotificationType.CRITICAL_STOCK.value,
-                NotificationType.OUT_OF_STOCK.value,
-            ]),
-            Notification.is_read == False,
-        ).scalar() or 0
-        order_alerts = db.query(func.count(Notification.id)).filter(
-            Notification.type == NotificationType.ORDER_ALERT.value,
-            Notification.is_read == False,
-        ).scalar() or 0
+        critical = (
+            db.query(func.count(Notification.id))
+            .filter(
+                Notification.severity == NotificationSeverity.CRITICAL.value,
+                Notification.is_read == False,
+            )
+            .scalar()
+            or 0
+        )
+        warning = (
+            db.query(func.count(Notification.id))
+            .filter(
+                Notification.severity == NotificationSeverity.WARNING.value,
+                Notification.is_read == False,
+            )
+            .scalar()
+            or 0
+        )
+        stock_alerts = (
+            db.query(func.count(Notification.id))
+            .filter(
+                Notification.type.in_(
+                    [
+                        NotificationType.LOW_STOCK.value,
+                        NotificationType.CRITICAL_STOCK.value,
+                        NotificationType.OUT_OF_STOCK.value,
+                    ]
+                ),
+                Notification.is_read == False,
+            )
+            .scalar()
+            or 0
+        )
+        order_alerts = (
+            db.query(func.count(Notification.id))
+            .filter(
+                Notification.type == NotificationType.ORDER_ALERT.value,
+                Notification.is_read == False,
+            )
+            .scalar()
+            or 0
+        )
 
         return NotificationSummary(
             total_notifications=total,

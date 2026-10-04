@@ -1,9 +1,9 @@
-from datetime import datetime, timezone, timedelta
-from typing import List, Optional, Tuple
-from app.core.exceptions import NotFoundException
-from sqlalchemy import func, desc
+from datetime import UTC, datetime
+
+from sqlalchemy import desc, func
 from sqlalchemy.orm import Session
 
+from app.core.exceptions import NotFoundException
 from app.models.customer import Customer, CustomerSegment
 from app.models.order import Order, OrderItem
 from app.schemas.customer import (
@@ -18,12 +18,12 @@ from app.utils.pagination import calc_pages
 
 def _compute_segment(customer: Customer) -> str:
     """Auto-compute customer segment based on recency & frequency."""
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     days_since_last = None
     if customer.last_order_date:
         last = customer.last_order_date
         if last.tzinfo is None:
-            last = last.replace(tzinfo=timezone.utc)
+            last = last.replace(tzinfo=UTC)
         days_since_last = (now - last).days
 
     if customer.total_orders == 0:
@@ -40,7 +40,7 @@ class CustomerService:
         self.db = db
 
     def get_summary(self) -> CustomerSummary:
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
 
         total = self.db.query(func.count(Customer.id)).scalar() or 0
@@ -49,8 +49,14 @@ class CustomerService:
 
         # Segment counts
         vip = self.db.query(func.count(Customer.id)).filter(Customer.segment == CustomerSegment.VIP.value).scalar() or 0
-        regular = self.db.query(func.count(Customer.id)).filter(Customer.segment == CustomerSegment.REGULAR.value).scalar() or 0
-        lapsed = self.db.query(func.count(Customer.id)).filter(Customer.segment == CustomerSegment.LAPSED.value).scalar() or 0
+        regular = (
+            self.db.query(func.count(Customer.id)).filter(Customer.segment == CustomerSegment.REGULAR.value).scalar()
+            or 0
+        )
+        lapsed = (
+            self.db.query(func.count(Customer.id)).filter(Customer.segment == CustomerSegment.LAPSED.value).scalar()
+            or 0
+        )
 
         # New this month
         new_count = self.db.query(func.count(Customer.id)).filter(Customer.created_at >= month_start).scalar() or 0
@@ -69,18 +75,16 @@ class CustomerService:
         self,
         page: int = 1,
         page_size: int = 20,
-        search: Optional[str] = None,
-        segment: Optional[str] = None,
+        search: str | None = None,
+        segment: str | None = None,
         sort_by: str = "total_spent",
-    ) -> Tuple[List[CustomerResponse], int, int]:
+    ) -> tuple[list[CustomerResponse], int, int]:
         query = self.db.query(Customer)
 
         if search:
             like = f"%{search}%"
             query = query.filter(
-                (Customer.name.ilike(like))
-                | (Customer.phone.ilike(like))
-                | (Customer.email.ilike(like))
+                (Customer.name.ilike(like)) | (Customer.phone.ilike(like)) | (Customer.email.ilike(like))
             )
 
         if segment and segment != "ALL":
@@ -195,7 +199,7 @@ class CustomerService:
             raise NotFoundException("Customer")
 
         existing = customer.notes or ""
-        timestamp = datetime.now(timezone.utc).strftime("%d %b %Y %H:%M")
+        timestamp = datetime.now(UTC).strftime("%d %b %Y %H:%M")
         customer.notes = f"[{timestamp}] {note}\n{existing}".strip()
         self.db.commit()
         self.db.refresh(customer)
@@ -206,16 +210,12 @@ class CustomerService:
         customer_id: int,
         page: int = 1,
         page_size: int = 10,
-    ) -> Tuple[List[CustomerOrderBrief], int, int]:
+    ) -> tuple[list[CustomerOrderBrief], int, int]:
         customer = self.db.query(Customer).filter(Customer.id == customer_id).first()
         if not customer:
             raise NotFoundException("Customer")
 
-        query = (
-            self.db.query(Order)
-            .filter(Order.customer_id == customer_id)
-            .order_by(desc(Order.created_at))
-        )
+        query = self.db.query(Order).filter(Order.customer_id == customer_id).order_by(desc(Order.created_at))
         total = query.count()
         pages = calc_pages(total, page_size)
         orders = query.offset((page - 1) * page_size).limit(page_size).all()

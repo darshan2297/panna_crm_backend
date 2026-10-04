@@ -74,7 +74,7 @@ class EmailNotificationAdapter(BaseNotificationAdapter):
             f"""
     </div>
     <div class="footer">
-      Sent via Panna CRM Notification Engine &bull; {datetime.now(UTC).strftime('%d %b %Y, %I:%M %p UTC')}
+      Sent via Panna CRM Notification Engine &bull; {datetime.now(UTC).strftime("%d %b %Y, %I:%M %p UTC")}
     </div>
   </div>
 </body>

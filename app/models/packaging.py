@@ -9,10 +9,10 @@ from app.models.base import TimestampMixin
 
 
 class PackagingCategory(str, enum.Enum):
-    CONTAINER = "CONTAINER"          # Bowls, Handis, Boxes, Meal Trays
-    BAG = "BAG"                      # Kraft Carry Bags, Non-Woven Bags
+    CONTAINER = "CONTAINER"  # Bowls, Handis, Boxes, Meal Trays
+    BAG = "BAG"  # Kraft Carry Bags, Non-Woven Bags
     ACCOMPANIMENT = "ACCOMPANIMENT"  # Raita Cups, Salan Gravy Pouches, Sweet Cups
-    CUTLERY = "CUTLERY"              # Wooden Cutlery Kits, Spoons, Napkins
+    CUTLERY = "CUTLERY"  # Wooden Cutlery Kits, Spoons, Napkins
     SEALING_LABEL = "SEALING_LABEL"  # Tamper Tape, Foil Rolls, Thermal Labels
     OTHER = "OTHER"
 
@@ -75,7 +75,9 @@ class PackagingTransaction(Base):
     __tablename__ = "packaging_transactions"
 
     id = Column(Integer, primary_key=True, index=True)
-    packaging_item_id = Column(Integer, ForeignKey("packaging_items.id", ondelete="CASCADE"), nullable=False, index=True)
+    packaging_item_id = Column(
+        Integer, ForeignKey("packaging_items.id", ondelete="CASCADE"), nullable=False, index=True
+    )
     transaction_type = Column(String(50), nullable=False, index=True)
     quantity = Column(Float, nullable=False)
     stock_before = Column(Float, nullable=False)
@@ -99,9 +101,13 @@ class PackagingConsumptionRule(Base, TimestampMixin):
     __tablename__ = "packaging_consumption_rules"
 
     id = Column(Integer, primary_key=True, index=True)
-    dish_category = Column(String(100), nullable=True)  # Dum Biryani, Starters & Kebabs, Curries & Gravies, Desserts, Beverages, ALL_ORDERS
-    portion_size = Column(String(50), nullable=True)   # Single, 250g, 500g, 750g, 1kg, ALL
-    packaging_item_id = Column(Integer, ForeignKey("packaging_items.id", ondelete="CASCADE"), nullable=False, index=True)
+    dish_category = Column(
+        String(100), nullable=True
+    )  # Dum Biryani, Starters & Kebabs, Curries & Gravies, Desserts, Beverages, ALL_ORDERS
+    portion_size = Column(String(50), nullable=True)  # Single, 250g, 500g, 750g, 1kg, ALL
+    packaging_item_id = Column(
+        Integer, ForeignKey("packaging_items.id", ondelete="CASCADE"), nullable=False, index=True
+    )
     quantity_per_order_unit = Column(Float, default=1.0, nullable=False)
     description = Column(String(255), nullable=True)
     is_active = Column(Boolean, default=True, nullable=False)

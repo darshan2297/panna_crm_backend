@@ -1,4 +1,3 @@
-
 from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.orm import Session
 
@@ -24,6 +23,7 @@ router = APIRouter(prefix="/menu", tags=["Menu Management"])
 
 
 # ---------------- Summary & Pricing Helpers ----------------
+
 
 @router.get("/summary", response_model=APIResponse[MenuSummaryResponse])
 def get_menu_summary(
@@ -55,6 +55,7 @@ def calculate_platform_prices(
 
 
 # ---------------- Categories ----------------
+
 
 @router.get("/categories", response_model=APIResponse[list[MenuCategoryResponse]])
 def list_menu_categories(
@@ -122,6 +123,7 @@ def delete_menu_category(
 
 
 # ---------------- Menu Items ----------------
+
 
 @router.get("/items", response_model=APIResponse[list[MenuItemResponse]])
 def list_menu_items(

@@ -1,4 +1,3 @@
-
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
@@ -17,9 +16,7 @@ class UserRepository(BaseRepository[User]):
         return self.db.query(User).filter(User.username == username).first()
 
     def get_by_username_or_email(self, identifier: str) -> User | None:
-        return self.db.query(User).filter(
-            or_(User.username == identifier, User.email == identifier)
-        ).first()
+        return self.db.query(User).filter(or_(User.username == identifier, User.email == identifier)).first()
 
     def get_filtered_users(
         self,

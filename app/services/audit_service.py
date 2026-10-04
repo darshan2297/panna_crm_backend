@@ -143,7 +143,7 @@ class AuditService:
 
         total = q.count()
         logs = q.order_by(AuditLog.created_at.desc()).offset((page - 1) * page_size).limit(page_size).all()
-        return [AuditLogRead.from_orm(l) for l in logs], total
+        return [AuditLogRead.from_orm(log) for log in logs], total
 
     def get_stats(self) -> AuditStats:
         total = self.db.query(AuditLog).count()
@@ -151,17 +151,11 @@ class AuditService:
         today_start = now.replace(hour=0, minute=0, second=0, microsecond=0, tzinfo=None)
         today_count = self.db.query(AuditLog).filter(AuditLog.created_at >= today_start).count()
 
-        by_action_rows = (
-            self.db.query(AuditLog.action, func.count(AuditLog.id))
-            .group_by(AuditLog.action)
-            .all()
-        )
+        by_action_rows = self.db.query(AuditLog.action, func.count(AuditLog.id)).group_by(AuditLog.action).all()
         by_action = {r[0]: r[1] for r in by_action_rows}
 
         by_entity_rows = (
-            self.db.query(AuditLog.entity_type, func.count(AuditLog.id))
-            .group_by(AuditLog.entity_type)
-            .all()
+            self.db.query(AuditLog.entity_type, func.count(AuditLog.id)).group_by(AuditLog.entity_type).all()
         )
         by_entity = {r[0]: r[1] for r in by_entity_rows}
 

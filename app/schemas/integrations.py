@@ -15,6 +15,7 @@ class IntegrationConfigRead(BaseModel):
     last_sync_at: datetime | None = None
     orders_synced_today: int
     sync_interval_minutes: int
+    shop_open: bool = True
     created_at: datetime
     updated_at: datetime
 
@@ -30,6 +31,7 @@ class IntegrationConfigUpdate(BaseModel):
     auto_accept: bool | None = None
     environment: str | None = None
     sync_interval_minutes: int | None = None
+    shop_open: bool | None = None
 
 
 class IntegrationLogRead(BaseModel):

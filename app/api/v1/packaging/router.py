@@ -42,7 +42,9 @@ def get_packaging_summary(
 @router.get("/items", response_model=APIResponse[PaginatedResponse[PackagingItemResponse]])
 def list_packaging_items(
     category: str | None = Query(None, description="Filter by category (CONTAINER, BAG, ACCOMPANIMENT, CUTLERY, etc.)"),
-    stock_status: str | None = Query(None, description="Filter by status (IN_STOCK, LOW_STOCK, CRITICAL, OUT_OF_STOCK)"),
+    stock_status: str | None = Query(
+        None, description="Filter by status (IN_STOCK, LOW_STOCK, CRITICAL, OUT_OF_STOCK)"
+    ),
     material: str | None = Query(None, description="Filter by material (Kraft Paper, PP, Clay, Wood, etc.)"),
     search: str | None = Query(None, description="Search by name, SKU, supplier, or description"),
     page: int = Query(1, ge=1, description="Page number"),
@@ -204,7 +206,9 @@ def list_packaging_rules(
     )
 
 
-@router.post("/rules", response_model=APIResponse[PackagingConsumptionRuleResponse], status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/rules", response_model=APIResponse[PackagingConsumptionRuleResponse], status_code=status.HTTP_201_CREATED
+)
 def create_packaging_rule(
     payload: PackagingConsumptionRuleCreate,
     db: Session = Depends(get_db),

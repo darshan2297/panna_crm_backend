@@ -1,5 +1,6 @@
 from contextlib import asynccontextmanager
 
+import socketio
 from fastapi import FastAPI, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
@@ -12,15 +13,32 @@ from app.core.exceptions import AppException
 from app.core.logging import logger
 from app.services.auth_service import AuthService
 from app.services.seed_service import seed_dashboard_data
+from app.socket_manager import capture_loop, sio
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Lifespan event handler for startup and shutdown routines."""
     logger.info("Initializing Panna Biryani CRM Backend...")
+    capture_loop()
 
     # Ensure database tables exist (SQLite dev fallback / quickstart)
     Base.metadata.create_all(bind=engine)
+
+    # Lightweight auto-migration: ensure shop_open column exists
+    try:
+        from sqlalchemy import inspect as _inspect
+        from sqlalchemy import text as _text
+
+        _insp = _inspect(engine)
+        if "integration_configs" in _insp.get_table_names():
+            _cols = [c["name"] for c in _insp.get_columns("integration_configs")]
+            if "shop_open" not in _cols:
+                with engine.begin() as _conn:
+                    _conn.execute(_text("ALTER TABLE integration_configs ADD COLUMN shop_open BOOLEAN DEFAULT TRUE"))
+                logger.info("Auto-migration: added shop_open column to integration_configs")
+    except Exception as e:
+        logger.error(f"Auto-migration check failed: {e}", exc_info=True)
 
     # Initialize default admin & staff users, and seed initial operational data
     db = SessionLocal()
@@ -108,3 +126,8 @@ def root():
         "health": f"{settings.API_V1_STR}/health",
         "version": "1.0.0",
     }
+
+
+# ASGI wrapper: Socket.IO realtime (live orders screen) + existing REST app.
+# Run with: uvicorn app.main:application
+application = socketio.ASGIApp(sio, other_asgi_app=app)

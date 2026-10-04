@@ -26,9 +26,9 @@ class DashboardService:
 
         # 1. Orders today vs yesterday
         today_orders = self.db.query(Order).filter(Order.created_at >= today_start).all()
-        yesterday_orders = self.db.query(Order).filter(
-            Order.created_at >= yesterday_start, Order.created_at < today_start
-        ).all()
+        yesterday_orders = (
+            self.db.query(Order).filter(Order.created_at >= yesterday_start, Order.created_at < today_start).all()
+        )
 
         today_orders_count = len(today_orders) if today_orders else 1
         yesterday_orders_count = len(yesterday_orders) if yesterday_orders else 1
@@ -41,7 +41,9 @@ class DashboardService:
         sales_growth = round(((today_sales - yesterday_sales) / max(yesterday_sales, 1.0)) * 100, 1)
 
         # Status breakdowns
-        pending_orders = len([o for o in today_orders if o.order_status in [OrderStatus.NEW.value, OrderStatus.CONFIRMED.value]])
+        pending_orders = len(
+            [o for o in today_orders if o.order_status in [OrderStatus.NEW.value, OrderStatus.CONFIRMED.value]]
+        )
         preparing_orders = len([o for o in today_orders if o.order_status == OrderStatus.PREPARING.value])
         delivered_orders = len([o for o in today_orders if o.order_status == OrderStatus.DELIVERED.value])
         cancelled_orders = len([o for o in today_orders if o.order_status == OrderStatus.CANCELLED.value])
@@ -54,16 +56,25 @@ class DashboardService:
         }
 
         platform_sales = {
-            OrderPlatform.ZOMATO.value: sum(o.total_amount for o in today_orders if o.platform == OrderPlatform.ZOMATO.value and o.order_status != OrderStatus.CANCELLED.value),
-            OrderPlatform.SWIGGY.value: sum(o.total_amount for o in today_orders if o.platform == OrderPlatform.SWIGGY.value and o.order_status != OrderStatus.CANCELLED.value),
-            OrderPlatform.WEBSITE.value: sum(o.total_amount for o in today_orders if o.platform == OrderPlatform.WEBSITE.value and o.order_status != OrderStatus.CANCELLED.value),
+            OrderPlatform.ZOMATO.value: sum(
+                o.total_amount
+                for o in today_orders
+                if o.platform == OrderPlatform.ZOMATO.value and o.order_status != OrderStatus.CANCELLED.value
+            ),
+            OrderPlatform.SWIGGY.value: sum(
+                o.total_amount
+                for o in today_orders
+                if o.platform == OrderPlatform.SWIGGY.value and o.order_status != OrderStatus.CANCELLED.value
+            ),
+            OrderPlatform.WEBSITE.value: sum(
+                o.total_amount
+                for o in today_orders
+                if o.platform == OrderPlatform.WEBSITE.value and o.order_status != OrderStatus.CANCELLED.value
+            ),
         }
 
         total_valid_sales = max(sum(platform_sales.values()), 1.0)
-        platform_sales_pct = {
-            plat: round((amt / total_valid_sales) * 100)
-            for plat, amt in platform_sales.items()
-        }
+        platform_sales_pct = {plat: round((amt / total_valid_sales) * 100) for plat, amt in platform_sales.items()}
 
         # 2. Low Stock Alerts
         inventory_items = self.db.query(InventoryItem).filter(InventoryItem.is_active == True).all()
@@ -90,11 +101,15 @@ class DashboardService:
             d_start = datetime(day_dt.year, day_dt.month, day_dt.day, tzinfo=UTC)
             d_end = d_start + timedelta(days=1)
 
-            day_orders = self.db.query(Order).filter(
-                Order.created_at >= d_start,
-                Order.created_at < d_end,
-                Order.order_status != OrderStatus.CANCELLED.value,
-            ).all()
+            day_orders = (
+                self.db.query(Order)
+                .filter(
+                    Order.created_at >= d_start,
+                    Order.created_at < d_end,
+                    Order.order_status != OrderStatus.CANCELLED.value,
+                )
+                .all()
+            )
 
             z_sales = sum(o.total_amount for o in day_orders if o.platform == OrderPlatform.ZOMATO.value)
             s_sales = sum(o.total_amount for o in day_orders if o.platform == OrderPlatform.SWIGGY.value)
@@ -140,12 +155,7 @@ class DashboardService:
         ]
 
         # 5. Recent Orders
-        recent_orders_raw = (
-            self.db.query(Order)
-            .order_by(Order.created_at.desc())
-            .limit(10)
-            .all()
-        )
+        recent_orders_raw = self.db.query(Order).order_by(Order.created_at.desc()).limit(10).all()
 
         recent_orders = [
             RecentOrderSummary(

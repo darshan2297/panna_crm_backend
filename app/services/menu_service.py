@@ -1,4 +1,3 @@
-
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session, joinedload
 
@@ -25,10 +24,9 @@ class MenuService:
     # ---------------- Categories ----------------
 
     def list_categories(self, is_active: bool | None = None) -> list[MenuCategoryResponse]:
-        query = self.db.query(
-            MenuCategory,
-            func.count(MenuItem.id).label("items_count")
-        ).outerjoin(MenuItem, MenuItem.category_id == MenuCategory.id)
+        query = self.db.query(MenuCategory, func.count(MenuItem.id).label("items_count")).outerjoin(
+            MenuItem, MenuItem.category_id == MenuCategory.id
+        )
 
         if is_active is not None:
             query = query.filter(MenuCategory.is_active == is_active)
@@ -149,10 +147,7 @@ class MenuService:
         skip: int = 0,
         limit: int = 100,
     ) -> list[MenuItemResponse]:
-        query = (
-            self.db.query(MenuItem)
-            .options(joinedload(MenuItem.category), joinedload(MenuItem.portions))
-        )
+        query = self.db.query(MenuItem).options(joinedload(MenuItem.category), joinedload(MenuItem.portions))
 
         if category_id:
             query = query.filter(MenuItem.category_id == category_id)

@@ -69,7 +69,9 @@ class InventoryTransaction(Base):
     __tablename__ = "inventory_transactions"
 
     id = Column(Integer, primary_key=True, index=True)
-    inventory_item_id = Column(Integer, ForeignKey("inventory_items.id", ondelete="CASCADE"), nullable=False, index=True)
+    inventory_item_id = Column(
+        Integer, ForeignKey("inventory_items.id", ondelete="CASCADE"), nullable=False, index=True
+    )
     transaction_type = Column(String(50), nullable=False, index=True)  # STOCK_IN, STOCK_OUT, WASTAGE, AUDIT_CORRECTION
     quantity = Column(Float, nullable=False)
     stock_before = Column(Float, nullable=False)

@@ -22,10 +22,14 @@ class PackagingTransactionTypeEnum(str, Enum):
 
 
 class PackagingItemBase(BaseModel):
-    name: str = Field(..., min_length=2, max_length=255, description="Packaging item name (e.g. 500ml Round Biryani Container)")
+    name: str = Field(
+        ..., min_length=2, max_length=255, description="Packaging item name (e.g. 500ml Round Biryani Container)"
+    )
     sku: str | None = Field(None, max_length=100, description="SKU identifier, auto-generated if blank")
     category: str = Field(default="CONTAINER", description="Packaging category")
-    material: str = Field(default="Food Grade PP", max_length=100, description="Material type (Kraft Paper, PP, Clay, Wood, Foil)")
+    material: str = Field(
+        default="Food Grade PP", max_length=100, description="Material type (Kraft Paper, PP, Clay, Wood, Foil)"
+    )
     capacity: str | None = Field(None, max_length=100, description="Capacity or size (500ml, 1kg, 250ml, Standard)")
     unit: str = Field(default="pcs", max_length=50, description="Unit of measurement (pcs, roll, pack)")
     current_stock: float = Field(default=0.0, ge=0.0, description="Current stock in kitchen/store")
@@ -34,7 +38,9 @@ class PackagingItemBase(BaseModel):
     purchase_cost: float = Field(default=0.0, ge=0.0, description="Purchase cost per unit in INR")
     supplier: str | None = Field(None, max_length=255, description="Packaging supplier/vendor name")
     storage_location: str | None = Field(None, max_length=255, description="Storage rack/cabinet in kitchen")
-    description: str | None = Field(None, max_length=500, description="Specifications, food-grade certifications, notes")
+    description: str | None = Field(
+        None, max_length=500, description="Specifications, food-grade certifications, notes"
+    )
     is_active: bool = Field(default=True, description="Active status")
 
 
@@ -107,8 +113,12 @@ class PackagingItemDetailResponse(PackagingItemResponse):
 
 
 class PackagingConsumptionRuleBase(BaseModel):
-    dish_category: str | None = Field(None, max_length=100, description="Dish category name (e.g., Dum Biryani, Starters & Kebabs, ALL_ORDERS)")
-    portion_size: str | None = Field(None, max_length=50, description="Portion size e.g. Single, 250g, 500g, 750g, 1kg, ALL")
+    dish_category: str | None = Field(
+        None, max_length=100, description="Dish category name (e.g., Dum Biryani, Starters & Kebabs, ALL_ORDERS)"
+    )
+    portion_size: str | None = Field(
+        None, max_length=50, description="Portion size e.g. Single, 250g, 500g, 750g, 1kg, ALL"
+    )
     packaging_item_id: int = Field(..., description="ID of packaging item used")
     quantity_per_order_unit: float = Field(default=1.0, gt=0.0, description="Packaging quantity consumed per dish unit")
     description: str | None = Field(None, max_length=255, description="Rule description or packaging instruction")

@@ -25,6 +25,7 @@ from app.schemas.public_order import (
     WebsiteOrderCreateResponse,
 )
 from app.services.platform_adapter import get_platform_adapter
+from app.socket_manager import emit_event
 from app.utils.pagination import calc_pages
 
 # Allowed forward status transitions
@@ -32,7 +33,11 @@ VALID_TRANSITIONS: dict[str, list[str]] = {
     OrderStatus.NEW.value: [OrderStatus.CONFIRMED.value, OrderStatus.CANCELLED.value],
     OrderStatus.CONFIRMED.value: [OrderStatus.PREPARING.value, OrderStatus.CANCELLED.value],
     OrderStatus.PREPARING.value: [OrderStatus.READY.value, OrderStatus.CANCELLED.value],
-    OrderStatus.READY.value: [OrderStatus.OUT_FOR_DELIVERY.value, OrderStatus.DELIVERED.value, OrderStatus.CANCELLED.value],
+    OrderStatus.READY.value: [
+        OrderStatus.OUT_FOR_DELIVERY.value,
+        OrderStatus.DELIVERED.value,
+        OrderStatus.CANCELLED.value,
+    ],
     OrderStatus.OUT_FOR_DELIVERY.value: [OrderStatus.DELIVERED.value, OrderStatus.CANCELLED.value],
     OrderStatus.DELIVERED.value: [],  # Terminal
     OrderStatus.CANCELLED.value: [],  # Terminal
@@ -254,6 +259,19 @@ class OrderService:
             initial_notes=f"Order placed via {adapter.display_name}",
         )
 
+        emit_event(
+            "new_order",
+            {
+                "id": created_order.id,
+                "order_number": created_order.order_number,
+                "platform": created_order.platform,
+                "customer_name": created_order.customer_name,
+                "total_amount": created_order.total_amount,
+                "items_summary": created_order.items_summary,
+                "order_status": created_order.order_status,
+            },
+        )
+
         return self.get_order_details(created_order.id)
 
     def update_order_status(
@@ -311,6 +329,15 @@ class OrderService:
         )
 
         logger.info(f"Order #{order.order_number} transitioned: {previous_status} -> {target_st} by {changed_by}")
+        emit_event(
+            "order_status_changed",
+            {
+                "id": order.id,
+                "order_number": order.order_number,
+                "order_status": target_st,
+                "previous_status": previous_status,
+            },
+        )
         return self.get_order_details(order.id)
 
     def cancel_order(
@@ -349,6 +376,15 @@ class OrderService:
             notes=f"Order Cancelled: {reason}",
         )
 
+        emit_event(
+            "order_status_changed",
+            {
+                "id": order.id,
+                "order_number": order.order_number,
+                "order_status": OrderStatus.CANCELLED.value,
+                "previous_status": previous_status,
+            },
+        )
         return self.get_order_details(order.id)
 
     def get_order_stats_summary(
@@ -374,6 +410,16 @@ class OrderService:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Order must contain at least one item",
+            )
+
+        # Block orders when the website shop is closed
+        from app.models.integration import IntegrationConfig
+
+        website_cfg = self.db.query(IntegrationConfig).filter(IntegrationConfig.platform == "WEBSITE").first()
+        if website_cfg and not website_cfg.shop_open:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="We are currently CLOSED and not accepting online orders. Please check back during shop hours.",
             )
 
         db_items: list[OrderItem] = []
@@ -454,6 +500,19 @@ class OrderService:
 
         logger.info(f"Website Order #{order_number} created for {payload.customer.name} (Amount: Rs.{total_amount})")
 
+        emit_event(
+            "new_order",
+            {
+                "id": order.id,
+                "order_number": order.order_number,
+                "platform": order.platform,
+                "customer_name": order.customer_name,
+                "total_amount": order.total_amount,
+                "items_summary": order.items_summary,
+                "order_status": order.order_status,
+            },
+        )
+
         return WebsiteOrderCreateResponse(
             order_number=order.order_number,
             order_status=order.order_status,
@@ -530,7 +589,9 @@ class OrderService:
             items_count=len(order.items),
             total_amount=order.total_amount,
             created_at=order.created_at,
-            estimated_delivery_minutes=35 if order.order_status in ["NEW", "CONFIRMED", "PREPARING"] else (15 if order.order_status in ["READY", "OUT_FOR_DELIVERY"] else 0),
+            estimated_delivery_minutes=35
+            if order.order_status in ["NEW", "CONFIRMED", "PREPARING"]
+            else (15 if order.order_status in ["READY", "OUT_FOR_DELIVERY"] else 0),
             timeline=timeline,
         )
 

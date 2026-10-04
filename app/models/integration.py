@@ -45,7 +45,9 @@ class IntegrationLog(Base, TimestampMixin):
     __tablename__ = "integration_logs"
 
     platform = Column(String(32), nullable=False, index=True)
-    event_type = Column(String(64), nullable=False, index=True)  # WEBHOOK_ORDER, WEBHOOK_STATUS, SYNC_ORDERS, SYNC_CATALOG, ERROR
+    event_type = Column(
+        String(64), nullable=False, index=True
+    )  # WEBHOOK_ORDER, WEBHOOK_STATUS, SYNC_ORDERS, SYNC_CATALOG, ERROR
     status = Column(String(32), nullable=False, default="SUCCESS")  # SUCCESS, FAILED, PENDING
     payload_snippet = Column(Text, nullable=True)
     message = Column(Text, nullable=True)

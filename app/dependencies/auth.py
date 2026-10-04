@@ -11,9 +11,7 @@ from app.dependencies.database import get_db
 from app.models.user import User
 from app.repositories.user_repository import UserRepository
 
-oauth2_scheme = OAuth2PasswordBearer(
-    tokenUrl=f"{settings.API_V1_STR}/auth/login"
-)
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl=f"{settings.API_V1_STR}/auth/login")
 
 
 def get_current_user(
@@ -46,9 +44,7 @@ def require_roles(allowed_roles: list[Any]):
     def role_checker(current_user: User = Depends(get_current_active_user)) -> User:
         allowed_values = [r.value if hasattr(r, "value") else str(r) for r in allowed_roles]
         if current_user.role not in allowed_values:
-            raise ForbiddenException(
-                f"Role '{current_user.role}' does not have required permissions"
-            )
+            raise ForbiddenException(f"Role '{current_user.role}' does not have required permissions")
         return current_user
 
     return role_checker

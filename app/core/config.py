@@ -1,4 +1,3 @@
-
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -35,6 +34,7 @@ class Settings(BaseSettings):
             return [str(i) for i in v]
         elif isinstance(v, str):
             import json
+
             try:
                 parsed = json.loads(v)
                 if isinstance(parsed, list):

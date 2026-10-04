@@ -116,4 +116,3 @@ class OrderStatusSummary(BaseModel):
     cancelled: int = 0
     today_orders: int = 0
     today_revenue: float = 0.0
-

@@ -1,4 +1,3 @@
-
 from sqlalchemy import case, func
 from sqlalchemy.orm import Session, joinedload
 
@@ -101,7 +100,9 @@ class InventoryService:
         if search and search.strip():
             term = f"%{search.strip()}%"
             query = query.filter(
-                (InventoryItem.name.ilike(term)) | (InventoryItem.sku.ilike(term)) | (InventoryItem.supplier.ilike(term))
+                (InventoryItem.name.ilike(term))
+                | (InventoryItem.sku.ilike(term))
+                | (InventoryItem.supplier.ilike(term))
             )
 
         if status_filter:
@@ -163,9 +164,7 @@ class InventoryService:
 
         sku = data.sku.strip() if data.sku and data.sku.strip() else self._generate_sku(data.name, data.category)
         existing_sku = (
-            self.db.query(InventoryItem)
-            .filter(InventoryItem.sku == sku, InventoryItem.is_active == True)
-            .first()
+            self.db.query(InventoryItem).filter(InventoryItem.sku == sku, InventoryItem.is_active == True).first()
         )
         if existing_sku:
             raise ConflictException(f"SKU '{sku}' is already assigned to another item")
@@ -230,7 +229,9 @@ class InventoryService:
         if data.sku and data.sku.strip() != item.sku:
             sku_conflict = (
                 self.db.query(InventoryItem)
-                .filter(InventoryItem.sku == data.sku.strip(), InventoryItem.id != item_id, InventoryItem.is_active == True)
+                .filter(
+                    InventoryItem.sku == data.sku.strip(), InventoryItem.id != item_id, InventoryItem.is_active == True
+                )
                 .first()
             )
             if sku_conflict:
@@ -360,9 +361,8 @@ class InventoryService:
         page_size: int = 50,
     ) -> tuple[list[InventoryTransactionResponse], int, int]:
         """List paginated inventory transactions across all or specific items."""
-        query = (
-            self.db.query(InventoryTransaction)
-            .options(joinedload(InventoryTransaction.item), joinedload(InventoryTransaction.performed_by))
+        query = self.db.query(InventoryTransaction).options(
+            joinedload(InventoryTransaction.item), joinedload(InventoryTransaction.performed_by)
         )
 
         if item_id:

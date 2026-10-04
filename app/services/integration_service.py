@@ -18,6 +18,7 @@ from app.schemas.integrations import (
     IntegrationLogRead,
     WebhookSimulateRequest,
 )
+from app.socket_manager import emit_event
 
 
 class IntegrationService:
@@ -86,6 +87,7 @@ class IntegrationService:
                     environment=d["environment"],
                     status=d["status"],
                     orders_synced_today=d["orders_synced_today"],
+                    shop_open=True,
                     last_sync_at=datetime.now(UTC),
                 )
                 self.db.add(new_cfg)
@@ -135,8 +137,17 @@ class IntegrationService:
         if payload.sync_interval_minutes is not None:
             cfg.sync_interval_minutes = payload.sync_interval_minutes
 
+        if payload.shop_open is not None:
+            cfg.shop_open = payload.shop_open
+
         self.db.commit()
         self.db.refresh(cfg)
+
+        if payload.shop_open is not None:
+            emit_event(
+                "shop_status_changed",
+                {"platform": platform.upper(), "shop_open": cfg.shop_open},
+            )
 
         # Log change
         self.log_event(
@@ -196,6 +207,15 @@ class IntegrationService:
             cfg.last_sync_at = datetime.now(UTC)
             self.db.commit()
 
+        # If shop is closed, reject incoming order intake events
+        if cfg and not cfg.shop_open and event_type in ("ORDER_PLACED", "ORDER_CREATED"):
+            return {
+                "success": False,
+                "message": f"Shop is currently CLOSED on {platform_upper}. Incoming order rejected.",
+                "event": event_type,
+                "received_at": datetime.now(UTC).isoformat(),
+            }
+
         return {
             "success": True,
             "message": f"Webhook processed successfully for {platform_upper}",
@@ -206,6 +226,17 @@ class IntegrationService:
     def simulate_webhook_order(self, req: WebhookSimulateRequest) -> dict[str, Any]:
         platform = req.platform.upper()
         order_num = f"{platform[:3]}-{random.randint(100000, 999999)}"
+
+        # Reject incoming orders when shop is closed on that platform
+        closed_cfg = self.db.query(IntegrationConfig).filter(IntegrationConfig.platform == platform).first()
+        if closed_cfg and not closed_cfg.shop_open:
+            from fastapi import HTTPException
+            from fastapi import status as _status
+
+            raise HTTPException(
+                status_code=_status.HTTP_403_FORBIDDEN,
+                detail=f"Shop is currently CLOSED on {platform}. Order rejected. Re-open the shop to accept orders.",
+            )
 
         # Find or create customer
         phone = req.customer_phone or "9876543210"
@@ -286,7 +317,6 @@ class IntegrationService:
             )
             self.db.add(o_item)
 
-
         # Update integration stats
         cfg = self.db.query(IntegrationConfig).filter(IntegrationConfig.platform == platform).first()
         if cfg:
@@ -303,6 +333,19 @@ class IntegrationService:
         )
 
         self.db.commit()
+
+        emit_event(
+            "new_order",
+            {
+                "id": order.id,
+                "order_number": order.order_number,
+                "platform": platform,
+                "customer_name": customer.name,
+                "total_amount": order.total_amount,
+                "items_summary": order.items_summary,
+                "order_status": order.order_status,
+            },
+        )
 
         return {
             "success": True,
@@ -329,10 +372,5 @@ class IntegrationService:
         self.db.commit()
 
     def get_recent_logs(self, limit: int = 50) -> list[IntegrationLogRead]:
-        logs = (
-            self.db.query(IntegrationLog)
-            .order_by(IntegrationLog.created_at.desc())
-            .limit(limit)
-            .all()
-        )
-        return [IntegrationLogRead.from_orm(l) for l in logs]
+        logs = self.db.query(IntegrationLog).order_by(IntegrationLog.created_at.desc()).limit(limit).all()
+        return [IntegrationLogRead.from_orm(log) for log in logs]

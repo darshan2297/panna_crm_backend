@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Optional
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 
 from sqlalchemy import func
 from sqlalchemy.orm import Session, joinedload
@@ -154,7 +154,7 @@ class PackagingService:
         ]
 
         # Daily consumption metrics (transactions from start of today)
-        today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+        today_start = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
         daily_txs = (
             self.db.query(PackagingTransaction)
             .filter(
@@ -236,9 +236,15 @@ class PackagingService:
             .first()
         )
         if existing:
-            raise ConflictException(f"Packaging item with name '{payload.name}' already exists (SKU: {existing.sku}).",)
+            raise ConflictException(
+                f"Packaging item with name '{payload.name}' already exists (SKU: {existing.sku}).",
+            )
 
-        sku = payload.sku.strip() if payload.sku and payload.sku.strip() else self._generate_sku(payload.name, payload.category)
+        sku = (
+            payload.sku.strip()
+            if payload.sku and payload.sku.strip()
+            else self._generate_sku(payload.name, payload.category)
+        )
         dup_sku = self.db.query(PackagingItem).filter(PackagingItem.sku == sku).first()
         if dup_sku:
             sku = self._generate_sku(payload.name, payload.category)
@@ -314,18 +320,20 @@ class PackagingService:
                 .first()
             )
             if dup:
-                raise ConflictException(f"Another packaging item already uses name '{new_name}'.",)
+                raise ConflictException(
+                    f"Another packaging item already uses name '{new_name}'.",
+                )
             item.name = new_name
 
         if "sku" in update_dict and update_dict["sku"]:
             new_sku = update_dict["sku"].strip()
             dup_sku = (
-                self.db.query(PackagingItem)
-                .filter(PackagingItem.sku == new_sku, PackagingItem.id != item_id)
-                .first()
+                self.db.query(PackagingItem).filter(PackagingItem.sku == new_sku, PackagingItem.id != item_id).first()
             )
             if dup_sku:
-                raise ConflictException(f"Another item with SKU '{new_sku}' already exists.",)
+                raise ConflictException(
+                    f"Another item with SKU '{new_sku}' already exists.",
+                )
             item.sku = new_sku
 
         for field in [
@@ -361,7 +369,7 @@ class PackagingService:
         self,
         item_id: int,
         payload: PackagingTransactionCreate,
-        current_user: Optional[User] = None,
+        current_user: User | None = None,
     ) -> tuple[PackagingItemResponse, PackagingTransactionResponse]:
         item = self.db.query(PackagingItem).filter(PackagingItem.id == item_id, PackagingItem.is_active == True).first()
         if not item:
@@ -377,7 +385,9 @@ class PackagingService:
             stock_after = stock_before + qty
         elif tx_type in ["STOCK_OUT", "ORDER_CONSUMPTION", "WASTAGE"]:
             if qty > stock_before:
-                raise BadRequestException(f"Insufficient stock for '{item.name}'. Available: {stock_before} {item.unit}, attempted: {qty} {item.unit}.",)
+                raise BadRequestException(
+                    f"Insufficient stock for '{item.name}'. Available: {stock_before} {item.unit}, attempted: {qty} {item.unit}.",
+                )
             stock_after = stock_before - qty
         elif tx_type == "AUDIT_CORRECTION":
             stock_after = qty
@@ -414,12 +424,9 @@ class PackagingService:
         page: int = 1,
         page_size: int = 25,
     ) -> tuple[list[PackagingTransactionResponse], int]:
-        query = (
-            self.db.query(PackagingTransaction)
-            .options(
-                joinedload(PackagingTransaction.item),
-                joinedload(PackagingTransaction.performed_by),
-            )
+        query = self.db.query(PackagingTransaction).options(
+            joinedload(PackagingTransaction.item),
+            joinedload(PackagingTransaction.performed_by),
         )
 
         if packaging_item_id:
@@ -444,7 +451,11 @@ class PackagingService:
         return [self._format_rule_response(r) for r in rules]
 
     def create_consumption_rule(self, payload: PackagingConsumptionRuleCreate) -> PackagingConsumptionRuleResponse:
-        item = self.db.query(PackagingItem).filter(PackagingItem.id == payload.packaging_item_id, PackagingItem.is_active == True).first()
+        item = (
+            self.db.query(PackagingItem)
+            .filter(PackagingItem.id == payload.packaging_item_id, PackagingItem.is_active == True)
+            .first()
+        )
         if not item:
             raise NotFoundException("Packaging item")
 
@@ -469,9 +480,7 @@ class PackagingService:
         self.db.commit()
         return True
 
-    def simulate_order_consumption(
-        self, items: list[PackagingOrderSimulationItem]
-    ) -> PackagingOrderSimulationResponse:
+    def simulate_order_consumption(self, items: list[PackagingOrderSimulationItem]) -> PackagingOrderSimulationResponse:
         rules = (
             self.db.query(PackagingConsumptionRule)
             .options(joinedload(PackagingConsumptionRule.packaging_item))

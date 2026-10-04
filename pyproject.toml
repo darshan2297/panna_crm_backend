@@ -25,6 +25,7 @@ ignore = [
     "B008",   # FastAPI Depends() in defaults is intentional
     "B904",   # exception chaining — gradual adoption
     "E712",   # SQLAlchemy boolean column comparisons (`== True`) are intentional
+    "UP042",  # `class X(str, Enum)` is intentional for FastAPI/Pydantic enums
 ]
 
 [tool.ruff.lint.isort]

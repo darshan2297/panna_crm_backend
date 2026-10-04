@@ -5,7 +5,9 @@ from pydantic import BaseModel, ConfigDict, Field
 
 # --- Portion Schemas ---
 class MenuItemPortionBase(BaseModel):
-    portion_size: str = Field(..., min_length=1, max_length=50, description="Portion name: Single, 250g, 500g, 750g, 1kg")
+    portion_size: str = Field(
+        ..., min_length=1, max_length=50, description="Portion name: Single, 250g, 500g, 750g, 1kg"
+    )
     weight_grams: int | None = Field(None, ge=1, description="Weight in grams if applicable")
     serves_persons: str | None = Field(None, max_length=50, description="e.g. 1-2 Persons")
     cost_price: float = Field(0.0, ge=0.0, description="Internal food cost in INR")
