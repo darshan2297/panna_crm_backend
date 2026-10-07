@@ -350,20 +350,28 @@ class MenuService:
     # ---------------- Summary & Price Calculation ----------------
 
     def get_menu_summary(self) -> MenuSummaryResponse:
-        total_items = self.db.query(MenuItem).count()
-        total_categories = self.db.query(MenuCategory).count()
-        veg_items_count = self.db.query(MenuItem).filter(MenuItem.is_veg == True).count()
-        non_veg_items_count = self.db.query(MenuItem).filter(MenuItem.is_veg == False).count()
-        available_items_count = self.db.query(MenuItem).filter(MenuItem.is_available == True).count()
-        out_of_stock_count = self.db.query(MenuItem).filter(MenuItem.is_available == False).count()
+        from sqlalchemy import case
+
+        # Single query with conditional aggregation instead of 6 separate COUNT queries
+        stats = (
+            self.db.query(
+                func.count(MenuItem.id).label("total"),
+                func.sum(case((MenuItem.is_veg == True, 1), else_=0)).label("veg"),
+                func.sum(case((MenuItem.is_veg == False, 1), else_=0)).label("non_veg"),
+                func.sum(case((MenuItem.is_available == True, 1), else_=0)).label("available"),
+                func.sum(case((MenuItem.is_available == False, 1), else_=0)).label("out_of_stock"),
+            )
+            .first()
+        )
+        total_categories = self.db.query(func.count(MenuCategory.id)).scalar() or 0
 
         return MenuSummaryResponse(
-            total_items=total_items,
+            total_items=stats.total or 0,
             total_categories=total_categories,
-            veg_items_count=veg_items_count,
-            non_veg_items_count=non_veg_items_count,
-            available_items_count=available_items_count,
-            out_of_stock_count=out_of_stock_count,
+            veg_items_count=stats.veg or 0,
+            non_veg_items_count=stats.non_veg or 0,
+            available_items_count=stats.available or 0,
+            out_of_stock_count=stats.out_of_stock or 0,
         )
 
     @staticmethod

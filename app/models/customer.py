@@ -27,8 +27,8 @@ class Customer(Base, TimestampMixin):
 
     # CRM enrichment fields (Phase 10)
     notes = Column(Text, nullable=True)
-    segment = Column(String(20), default=CustomerSegment.NEW.value, nullable=False)
-    last_order_date = Column(DateTime, nullable=True)
+    segment = Column(String(20), default=CustomerSegment.NEW.value, index=True, nullable=False)
+    last_order_date = Column(DateTime, index=True, nullable=True)
 
     # Relationships
     orders = relationship("Order", back_populates="customer")

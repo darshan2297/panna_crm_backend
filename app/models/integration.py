@@ -10,7 +10,6 @@ class IntegrationPlatform(str, enum.Enum):
     ZOMATO = "ZOMATO"
     SWIGGY = "SWIGGY"
     WEBSITE = "WEBSITE"
-    ONDC = "ONDC"
 
 
 class IntegrationStatus(str, enum.Enum):

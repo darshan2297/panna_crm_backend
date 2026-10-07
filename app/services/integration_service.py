@@ -24,7 +24,10 @@ from app.socket_manager import emit_event
 class IntegrationService:
     def __init__(self, db: Session):
         self.db = db
-        self._ensure_default_configs()
+        # Don't seed on every request - only seed if table is empty
+        existing = self.db.query(IntegrationConfig).first()
+        if not existing:
+            self._ensure_default_configs()
 
     def _ensure_default_configs(self):
         defaults = [
@@ -60,17 +63,6 @@ class IntegrationService:
                 "environment": "LIVE",
                 "status": "CONNECTED",
                 "orders_synced_today": 31,
-            },
-            {
-                "platform": "ONDC",
-                "is_enabled": False,
-                "store_id": "ONDC-BAP-9901",
-                "api_key_masked": "ondc_sand_***...1102",
-                "webhook_secret": "whsec_ondc_test",
-                "auto_accept": False,
-                "environment": "SANDBOX",
-                "status": "DISCONNECTED",
-                "orders_synced_today": 0,
             },
         ]
 

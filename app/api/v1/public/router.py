@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 
 from app.dependencies.database import get_db
 from app.schemas.common import APIResponse
+from app.schemas.contact_inquiry import ContactInquiryCreate
 from app.schemas.public_order import (
     PaymentWebhookRequest,
     PaymentWebhookResponse,
@@ -10,6 +11,7 @@ from app.schemas.public_order import (
     WebsiteOrderCreateRequest,
     WebsiteOrderCreateResponse,
 )
+from app.services.contact_inquiry_service import ContactInquiryService
 from app.services.order_service import OrderService
 
 router = APIRouter(prefix="/public", tags=["Public Storefront Gateway"])
@@ -142,6 +144,25 @@ def get_public_menu_data(db: Session = Depends(get_db)):
     )
 
 
+@router.post("/contact-inquiries", status_code=status.HTTP_201_CREATED)
+def submit_contact_inquiry(
+    payload: ContactInquiryCreate,
+    db: Session = Depends(get_db),
+):
+    """
+    Public Endpoint: Website contact form & bulk order enquiry submission.
+    - No auth required (customer-facing)
+    - Raises an in-app CRM notification + realtime socket event
+    """
+    service = ContactInquiryService(db)
+    inquiry = service.create_inquiry(payload)
+    return APIResponse(
+        success=True,
+        message="Thank you! Your enquiry has been received. Our team will contact you shortly.",
+        data={"id": inquiry.id},
+    )
+
+
 @router.get("/business-hours")
 def get_public_business_hours(db: Session = Depends(get_db)):
     """Public Endpoint: Storefront operating hours, holiday message and next opening."""
@@ -200,4 +221,49 @@ def get_public_menu(db: Session = Depends(get_db)):
         success=True,
         message="Public menu retrieved successfully",
         data=categorized,
+    )
+
+
+@router.get("/reviews")
+def get_public_reviews(db: Session = Depends(get_db)):
+    """Public Endpoint: Active customer reviews for storefront display."""
+    from app.services.review_service import ReviewService
+    from app.schemas.review import ReviewResponse
+
+    service = ReviewService(db)
+    reviews = service.list_reviews(active_only=True)
+    return APIResponse(
+        success=True,
+        message="Reviews retrieved successfully",
+        data=[ReviewResponse.model_validate(r) for r in reviews],
+    )
+
+
+@router.get("/faqs")
+def get_public_faqs(db: Session = Depends(get_db)):
+    """Public Endpoint: Active FAQs for storefront display."""
+    from app.services.faq_service import FAQService
+    from app.schemas.faq import FAQResponse
+
+    service = FAQService(db)
+    faqs = service.list_faqs(active_only=True)
+    return APIResponse(
+        success=True,
+        message="FAQs retrieved successfully",
+        data=[FAQResponse.model_validate(f) for f in faqs],
+    )
+
+
+@router.get("/delivery-areas")
+def get_public_delivery_areas(db: Session = Depends(get_db)):
+    """Public Endpoint: Active delivery areas for storefront checkout."""
+    from app.services.delivery_area_service import DeliveryAreaService
+    from app.schemas.delivery_area import DeliveryAreaResponse
+
+    service = DeliveryAreaService(db)
+    areas = service.list_areas(active_only=True)
+    return APIResponse(
+        success=True,
+        message="Delivery areas retrieved successfully",
+        data=[DeliveryAreaResponse.model_validate(a) for a in areas],
     )

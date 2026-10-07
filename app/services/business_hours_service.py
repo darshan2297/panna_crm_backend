@@ -404,7 +404,7 @@ def resolve_shop_status(db: Session) -> dict:
     )
 
     # Known sales channels default to open if no config row exists yet.
-    known_platforms = ["ZOMATO", "SWIGGY", "WEBSITE", "ONDC"]
+    known_platforms = ["ZOMATO", "SWIGGY", "WEBSITE"]
     manual: dict[str, bool] = {p: True for p in known_platforms}
     for cfg in db.query(IntegrationConfig).all():
         manual[cfg.platform] = bool(cfg.shop_open)

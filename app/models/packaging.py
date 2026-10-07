@@ -30,7 +30,7 @@ class PackagingItem(Base, TimestampMixin):
 
     name = Column(String(255), unique=True, index=True, nullable=False)
     sku = Column(String(100), unique=True, index=True, nullable=False)
-    category = Column(String(50), default="CONTAINER", nullable=False)
+    category = Column(String(50), default="CONTAINER", index=True, nullable=False)
     material = Column(String(100), default="Food Grade PP", nullable=False)  # PP, Kraft, Clay, Wood, Foil
     capacity = Column(String(100), nullable=True)  # 500ml, 1kg, 250ml, 50ml, Standard
     unit = Column(String(50), default="pcs", nullable=False)  # pcs, roll, pack
@@ -87,8 +87,8 @@ class PackagingTransaction(Base):
     order_id = Column(Integer, ForeignKey("orders.id", ondelete="SET NULL"), nullable=True, index=True)
     reference_no = Column(String(100), nullable=True)
     notes = Column(Text, nullable=True)
-    performed_by_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
-    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False)
+    performed_by_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False, index=True)
 
     item = relationship("PackagingItem", back_populates="transactions")
     performed_by = relationship("User")
@@ -110,7 +110,7 @@ class PackagingConsumptionRule(Base, TimestampMixin):
     )
     quantity_per_order_unit = Column(Float, default=1.0, nullable=False)
     description = Column(String(255), nullable=True)
-    is_active = Column(Boolean, default=True, nullable=False)
+    is_active = Column(Boolean, default=True, index=True, nullable=False)
 
     packaging_item = relationship("PackagingItem", back_populates="consumption_rules")
 

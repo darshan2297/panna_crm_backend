@@ -1,3 +1,4 @@
+import time
 from contextlib import asynccontextmanager
 
 import socketio
@@ -72,10 +73,13 @@ async def lifespan(app: FastAPI):
         auth_service = AuthService(db)
         auth_service.init_default_users()
         seed_dashboard_data(db)
-        from app.services.website_seed import seed_storefront_config, seed_website_menu
+        from app.services.website_seed import seed_storefront_config, seed_website_menu, seed_reviews, seed_faqs, seed_delivery_areas
 
         seed_storefront_config(db)
         seed_website_menu(db)
+        seed_reviews(db)
+        seed_faqs(db)
+        seed_delivery_areas(db)
     except Exception as e:
         logger.error(f"Error during database initialization: {e}", exc_info=True)
     finally:
@@ -104,6 +108,19 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# Response Time Middleware - adds X-Response-Time-Ms header to every response
+@app.middleware("http")
+async def add_response_time_header(request: Request, call_next):
+    """Measure request processing time and add it as a response header in milliseconds."""
+    start_time = time.perf_counter()
+    response = await call_next(request)
+    elapsed_ms = (time.perf_counter() - start_time) * 1000
+    response.headers["X-Response-Time-Ms"] = f"{elapsed_ms:.2f}"
+    # Also add a human-readable header
+    response.headers["X-Response-Time"] = f"{elapsed_ms:.2f}ms"
+    return response
 
 
 # Centralized Exception Handlers

@@ -1,4 +1,5 @@
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -24,107 +25,145 @@ class DashboardService:
         today_start = datetime(now.year, now.month, now.day, tzinfo=UTC)
         yesterday_start = today_start - timedelta(days=1)
 
-        # 1. Orders today vs yesterday
-        today_orders = self.db.query(Order).filter(Order.created_at >= today_start).all()
-        yesterday_orders = (
-            self.db.query(Order).filter(Order.created_at >= yesterday_start, Order.created_at < today_start).all()
+        # 1. Orders today vs yesterday - use SQL aggregation instead of loading all rows
+        today_stats = (
+            self.db.query(
+                func.count(Order.id).label("count"),
+                func.sum(Order.total_amount).label("total"),
+            )
+            .filter(Order.created_at >= today_start)
+            .first()
+        )
+        yesterday_stats = (
+            self.db.query(
+                func.count(Order.id).label("count"),
+                func.sum(Order.total_amount).label("total"),
+            )
+            .filter(Order.created_at >= yesterday_start, Order.created_at < today_start)
+            .first()
         )
 
-        today_orders_count = len(today_orders) if today_orders else 1
-        yesterday_orders_count = len(yesterday_orders) if yesterday_orders else 1
-
-        today_sales = sum(o.total_amount for o in today_orders if o.order_status != OrderStatus.CANCELLED.value)
-        yesterday_sales = sum(o.total_amount for o in yesterday_orders if o.order_status != OrderStatus.CANCELLED.value)
+        today_orders_count = today_stats.count or 0
+        yesterday_orders_count = yesterday_stats.count or 0
+        today_sales = float(today_stats.total or 0)
+        yesterday_sales = float(yesterday_stats.total or 0)
 
         # Growth calculation
-        orders_growth = round(((today_orders_count - yesterday_orders_count) / yesterday_orders_count) * 100, 1)
+        orders_growth = round(((today_orders_count - yesterday_orders_count) / max(yesterday_orders_count, 1)) * 100, 1)
         sales_growth = round(((today_sales - yesterday_sales) / max(yesterday_sales, 1.0)) * 100, 1)
 
-        # Status breakdowns
-        pending_orders = len(
-            [o for o in today_orders if o.order_status in [OrderStatus.NEW.value, OrderStatus.CONFIRMED.value]]
+        # Status breakdowns - single query with GROUP BY
+        status_counts = (
+            self.db.query(Order.order_status, func.count(Order.id))
+            .filter(Order.created_at >= today_start)
+            .group_by(Order.order_status)
+            .all()
         )
-        preparing_orders = len([o for o in today_orders if o.order_status == OrderStatus.PREPARING.value])
-        delivered_orders = len([o for o in today_orders if o.order_status == OrderStatus.DELIVERED.value])
-        cancelled_orders = len([o for o in today_orders if o.order_status == OrderStatus.CANCELLED.value])
+        status_map = {s: c for s, c in status_counts}
+        pending_orders = status_map.get(OrderStatus.NEW.value, 0) + status_map.get(OrderStatus.CONFIRMED.value, 0)
+        preparing_orders = status_map.get(OrderStatus.PREPARING.value, 0)
+        delivered_orders = status_map.get(OrderStatus.DELIVERED.value, 0)
+        cancelled_orders = status_map.get(OrderStatus.CANCELLED.value, 0)
 
-        # Platform breakdowns
-        platform_orders = {
-            OrderPlatform.ZOMATO.value: len([o for o in today_orders if o.platform == OrderPlatform.ZOMATO.value]),
-            OrderPlatform.SWIGGY.value: len([o for o in today_orders if o.platform == OrderPlatform.SWIGGY.value]),
-            OrderPlatform.WEBSITE.value: len([o for o in today_orders if o.platform == OrderPlatform.WEBSITE.value]),
-        }
+        # Platform breakdowns - single query with GROUP BY
+        platform_stats = (
+            self.db.query(Order.platform, func.count(Order.id), func.sum(Order.total_amount))
+            .filter(Order.created_at >= today_start)
+            .group_by(Order.platform)
+            .all()
+        )
+        platform_orders = {}
+        platform_sales = {}
+        for plat, cnt, rev in platform_stats:
+            platform_orders[plat] = cnt
+            platform_sales[plat] = float(rev or 0)
 
-        platform_sales = {
-            OrderPlatform.ZOMATO.value: sum(
-                o.total_amount
-                for o in today_orders
-                if o.platform == OrderPlatform.ZOMATO.value and o.order_status != OrderStatus.CANCELLED.value
-            ),
-            OrderPlatform.SWIGGY.value: sum(
-                o.total_amount
-                for o in today_orders
-                if o.platform == OrderPlatform.SWIGGY.value and o.order_status != OrderStatus.CANCELLED.value
-            ),
-            OrderPlatform.WEBSITE.value: sum(
-                o.total_amount
-                for o in today_orders
-                if o.platform == OrderPlatform.WEBSITE.value and o.order_status != OrderStatus.CANCELLED.value
-            ),
-        }
+        # Ensure all platforms are present
+        for p in [OrderPlatform.ZOMATO.value, OrderPlatform.SWIGGY.value, OrderPlatform.WEBSITE.value]:
+            platform_orders.setdefault(p, 0)
+            platform_sales.setdefault(p, 0.0)
 
         total_valid_sales = max(sum(platform_sales.values()), 1.0)
         platform_sales_pct = {plat: round((amt / total_valid_sales) * 100) for plat, amt in platform_sales.items()}
 
-        # 2. Low Stock Alerts
-        inventory_items = self.db.query(InventoryItem).filter(InventoryItem.is_active == True).all()
-        low_stock_list: list[LowStockAlert] = []
-        for inv in inventory_items:
-            if inv.current_stock <= inv.reorder_level:
-                low_stock_list.append(
-                    LowStockAlert(
-                        id=inv.id,
-                        name=inv.name,
-                        category=inv.category,
-                        current_stock=inv.current_stock,
-                        minimum_stock=inv.minimum_stock,
-                        reorder_level=inv.reorder_level,
-                        unit=inv.unit,
-                        is_critical=inv.current_stock <= inv.minimum_stock,
-                    )
-                )
+        # 2. Low Stock Alerts - single query for low stock items
+        low_stock_items = (
+            self.db.query(InventoryItem)
+            .filter(InventoryItem.is_active == True, InventoryItem.current_stock <= InventoryItem.reorder_level)
+            .all()
+        )
+        low_stock_list: list[LowStockAlert] = [
+            LowStockAlert(
+                id=inv.id,
+                name=inv.name,
+                category=inv.category,
+                current_stock=inv.current_stock,
+                minimum_stock=inv.minimum_stock,
+                reorder_level=inv.reorder_level,
+                unit=inv.unit,
+                is_critical=inv.current_stock <= inv.minimum_stock,
+            )
+            for inv in low_stock_items
+        ]
 
-        # 3. 7-Day Sales Trend
-        sales_trend: list[SalesTrendPoint] = []
+        # 3. 7-Day Sales Trend - single query with GROUP BY instead of 7 separate queries
+        week_start = today_start - timedelta(days=6)
+        trend_data = (
+            self.db.query(
+                func.date(Order.created_at).label("day"),
+                Order.platform,
+                func.count(Order.id).label("order_count"),
+                func.sum(Order.total_amount).label("revenue"),
+            )
+            .filter(
+                Order.created_at >= week_start,
+                Order.order_status != OrderStatus.CANCELLED.value,
+            )
+            .group_by(func.date(Order.created_at), Order.platform)
+            .all()
+        )
+
+        # Build trend buckets
+        day_buckets: dict[str, dict[str, Any]] = {}
         for days_back in range(6, -1, -1):
             day_dt = now - timedelta(days=days_back)
-            d_start = datetime(day_dt.year, day_dt.month, day_dt.day, tzinfo=UTC)
-            d_end = d_start + timedelta(days=1)
+            day_str = day_dt.strftime("%Y-%m-%d")
+            day_buckets[day_str] = {
+                "date": day_str,
+                "day": day_dt.strftime("%a"),
+                "total": 0.0,
+                "zomato": 0.0,
+                "swiggy": 0.0,
+                "website": 0.0,
+                "orders_count": 0,
+            }
 
-            day_orders = (
-                self.db.query(Order)
-                .filter(
-                    Order.created_at >= d_start,
-                    Order.created_at < d_end,
-                    Order.order_status != OrderStatus.CANCELLED.value,
-                )
-                .all()
-            )
+        for day, platform, order_count, revenue in trend_data:
+            day_str = str(day)
+            if day_str in day_buckets:
+                amt = float(revenue or 0)
+                day_buckets[day_str]["total"] += amt
+                day_buckets[day_str]["orders_count"] += order_count
+                p = str(platform or "").upper()
+                if "ZOMATO" in p:
+                    day_buckets[day_str]["zomato"] += amt
+                elif "SWIGGY" in p:
+                    day_buckets[day_str]["swiggy"] += amt
+                else:
+                    day_buckets[day_str]["website"] += amt
 
-            z_sales = sum(o.total_amount for o in day_orders if o.platform == OrderPlatform.ZOMATO.value)
-            s_sales = sum(o.total_amount for o in day_orders if o.platform == OrderPlatform.SWIGGY.value)
-            w_sales = sum(o.total_amount for o in day_orders if o.platform == OrderPlatform.WEBSITE.value)
-            tot = z_sales + s_sales + w_sales
-
+        sales_trend: list[SalesTrendPoint] = []
+        for day_str in sorted(day_buckets.keys()):
+            b = day_buckets[day_str]
             sales_trend.append(
                 SalesTrendPoint(
-                    date=d_start.strftime("%Y-%m-%d"),
-                    day=d_start.strftime("%a"),
-                    total=tot,
-                    zomato=z_sales,
-                    swiggy=s_sales,
-                    website=w_sales,
-                    orders_count=len(day_orders),
+                    date=b["date"],
+                    day=b["day"],
+                    total=round(b["total"], 2),
+                    zomato=round(b["zomato"], 2),
+                    swiggy=round(b["swiggy"], 2),
+                    website=round(b["website"], 2),
+                    orders_count=b["orders_count"],
                 )
             )
 

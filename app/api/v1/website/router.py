@@ -15,6 +15,7 @@ from app.schemas.storefront import (
     PromoCodeCreate,
     PromoCodeResponse,
     PromoCodeUpdate,
+    PromoCodeValidateRequest,
     StorefrontConfigResponse,
     StorefrontConfigUpdate,
 )
@@ -96,6 +97,17 @@ def create_promocode(
 ):
     service = StorefrontService(db)
     return APIResponse(success=True, message="Promo code created", data=service.create_promocode(payload))
+
+
+@router.post("/promocodes/{code}/validate", response_model=APIResponse[dict])
+def validate_promocode(
+    code: str,
+    payload: PromoCodeValidateRequest,
+    db: Session = Depends(get_db),
+):
+    service = StorefrontService(db)
+    result = service.validate_promocode(code, payload)
+    return APIResponse(success=True, message="Promo code validated", data=result)
 
 
 @router.patch("/promocodes/{pc_id}", response_model=APIResponse[PromoCodeResponse])

@@ -31,7 +31,7 @@ class InventoryItem(Base, TimestampMixin):
 
     name = Column(String(255), unique=True, index=True, nullable=False)
     sku = Column(String(100), unique=True, index=True, nullable=False)
-    category = Column(String(50), default="GRAIN", nullable=False)
+    category = Column(String(50), default="GRAIN", index=True, nullable=False)
     unit = Column(String(50), default="kg", nullable=False)  # kg, g, l, ml, piece, packet, pcs
     current_stock = Column(Float, default=0.0, nullable=False)
     minimum_stock = Column(Float, default=10.0, nullable=False)
@@ -40,7 +40,7 @@ class InventoryItem(Base, TimestampMixin):
     supplier = Column(String(255), nullable=True)
     storage_location = Column(String(255), nullable=True)
     description = Column(String(500), nullable=True)
-    is_active = Column(Boolean, default=True, nullable=False)
+    is_active = Column(Boolean, default=True, index=True, nullable=False)
 
     transactions = relationship(
         "InventoryTransaction",
@@ -80,8 +80,8 @@ class InventoryTransaction(Base):
     total_cost = Column(Float, nullable=True)
     reference_no = Column(String(100), nullable=True)
     notes = Column(Text, nullable=True)
-    performed_by_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
-    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False)
+    performed_by_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False, index=True)
 
     item = relationship("InventoryItem", back_populates="transactions")
     performed_by = relationship("User")

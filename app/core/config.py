@@ -10,7 +10,7 @@ class Settings(BaseSettings):
 
     # Security
     SECRET_KEY: str = "panna_super_secret_jwt_key_change_in_production_123456789"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 10080  # 7 days
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
     ALGORITHM: str = "HS256"
 

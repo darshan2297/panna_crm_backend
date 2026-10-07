@@ -6,6 +6,7 @@ from app.models.business_hours import (
     BusinessHourDay,
     BusinessHoursConfig,
 )
+from app.models.contact_inquiry import ContactInquiry
 from app.models.customer import Customer
 from app.models.integration import (
     IntegrationConfig,
@@ -40,6 +41,9 @@ from app.models.restock_order import (
     RestockOrderTarget,
 )
 from app.models.user import User, UserRole
+from app.models.review import Review
+from app.models.faq import FAQ, FAQCategory
+from app.models.delivery_area import DeliveryArea
 
 __all__ = [
     "Base",
@@ -86,4 +90,8 @@ __all__ = [
     "StorefrontConfig",
     "PaymentMethodConfig",
     "PromoCode",
+    "Review",
+    "FAQ",
+    "FAQCategory",
+    "DeliveryArea",
 ]

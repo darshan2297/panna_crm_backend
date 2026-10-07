@@ -116,66 +116,67 @@ class PackagingService:
         )
 
     def get_summary(self) -> PackagingSummaryResponse:
-        items = self.db.query(PackagingItem).filter(PackagingItem.is_active == True).all()
-        total_items = len(items)
-        in_stock_items = 0
-        low_stock_items = 0
-        critical_stock_items = 0
-        out_of_stock_items = 0
-        total_val = 0.0
+        from sqlalchemy import case, and_
 
-        cat_map: dict[str, dict[str, float]] = {}
+        # Single query for overall stats
+        stats = (
+            self.db.query(
+                func.count(PackagingItem.id).label("total"),
+                func.sum(case((PackagingItem.current_stock <= 0, 1), else_=0)).label("out_of_stock"),
+                func.sum(case((and_(PackagingItem.current_stock > 0, PackagingItem.current_stock <= PackagingItem.minimum_stock), 1), else_=0)).label("critical"),
+                func.sum(case((and_(PackagingItem.current_stock > PackagingItem.minimum_stock, PackagingItem.current_stock <= PackagingItem.reorder_level), 1), else_=0)).label("low"),
+                func.sum(case((PackagingItem.current_stock > PackagingItem.reorder_level, 1), else_=0)).label("in_stock"),
+                func.sum(PackagingItem.current_stock * PackagingItem.purchase_cost).label("total_val"),
+            )
+            .filter(PackagingItem.is_active == True)
+            .first()
+        )
 
-        for it in items:
-            val = it.total_valuation
-            total_val += val
-
-            if it.category not in cat_map:
-                cat_map[it.category] = {"count": 0, "val": 0.0}
-            cat_map[it.category]["count"] += 1
-            cat_map[it.category]["val"] += val
-
-            if it.current_stock <= 0:
-                out_of_stock_items += 1
-            elif it.is_critical_stock:
-                critical_stock_items += 1
-            elif it.is_low_stock:
-                low_stock_items += 1
-            else:
-                in_stock_items += 1
+        # Single query for category breakdowns
+        cat_data = (
+            self.db.query(
+                PackagingItem.category,
+                func.count(PackagingItem.id).label("count"),
+                func.sum(PackagingItem.current_stock * PackagingItem.purchase_cost).label("val"),
+            )
+            .filter(PackagingItem.is_active == True)
+            .group_by(PackagingItem.category)
+            .all()
+        )
 
         cat_valuations = [
             CategoryPackagingValuation(
                 category=cat,
-                item_count=int(data["count"]),
-                total_valuation=round(data["val"], 2),
+                item_count=int(cnt),
+                total_valuation=round(float(val or 0), 2),
             )
-            for cat, data in sorted(cat_map.items())
+            for cat, cnt, val in sorted(cat_data)
         ]
 
-        # Daily consumption metrics (transactions from start of today)
+        # Daily consumption metrics - single query with SUM instead of loading all rows
         today_start = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
-        daily_txs = (
-            self.db.query(PackagingTransaction)
+        daily_stats = (
+            self.db.query(
+                func.sum(PackagingTransaction.quantity).label("units"),
+                func.sum(PackagingTransaction.total_cost).label("cost"),
+            )
             .filter(
                 PackagingTransaction.created_at >= today_start,
                 PackagingTransaction.transaction_type.in_(["STOCK_OUT", "ORDER_CONSUMPTION", "WASTAGE"]),
             )
-            .all()
+            .first()
         )
-        daily_units = sum(tx.quantity for tx in daily_txs)
-        daily_cost = sum(tx.total_cost or 0.0 for tx in daily_txs)
 
         return PackagingSummaryResponse(
-            total_items=total_items,
-            in_stock_items=in_stock_items,
-            low_stock_items=low_stock_items,
-            critical_stock_items=critical_stock_items,
-            out_of_stock_items=out_of_stock_items,
-            total_packaging_value_inr=round(total_val, 2),
+            total_items=stats.total or 0,
+            in_stock_items=stats.in_stock or 0,
+            low_stock_items=stats.low or 0,
+            critical_stock_items=stats.critical or 0,
+            out_of_stock_items=stats.out_of_stock or 0,
+            total_packaging_value_inr=round(float(stats.total_val or 0), 2),
             category_valuations=cat_valuations,
-            daily_consumption_units=round(daily_units, 2),
-            daily_consumption_cost_inr=round(daily_cost, 2),
+            daily_consumption_units=round(float(daily_stats.units or 0), 2),
+            daily_consumption_cost_inr=round(float(daily_stats.cost or 0), 2),
         )
 
     def list_items(

@@ -9,6 +9,7 @@ class TimestampMixin:
         DateTime,
         default=lambda: datetime.now(UTC),
         nullable=False,
+        index=True,
     )
     updated_at = Column(
         DateTime,

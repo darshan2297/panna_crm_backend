@@ -38,6 +38,20 @@ def get_restock_suggestions(
     )
 
 
+@router.get("/suppliers", response_model=APIResponse[list[str]])
+def get_distinct_suppliers(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Distinct supplier names across inventory_items and packaging_items."""
+    suppliers = RestockService.get_distinct_suppliers(db=db)
+    return APIResponse(
+        success=True,
+        message="Suppliers retrieved successfully",
+        data=suppliers,
+    )
+
+
 @router.get("/summary", response_model=APIResponse[RestockSummary])
 def get_restock_summary(
     db: Session = Depends(get_db),

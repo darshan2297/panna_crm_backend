@@ -1,4 +1,4 @@
-from sqlalchemy import Boolean, Column, Float, Integer, String, Text
+from sqlalchemy import Boolean, Column, DateTime, Float, Integer, String, Text
 
 from app.core.database import Base
 from app.models.base import TimestampMixin
@@ -61,3 +61,11 @@ class PromoCode(Base, TimestampMixin):
     min_order_value = Column(Float, default=0.0, nullable=False)
     badge = Column(String(100), nullable=True)
     active = Column(Boolean, default=True, nullable=False, index=True)
+
+    valid_from = Column(DateTime, nullable=True)
+    valid_until = Column(DateTime, nullable=True)
+    max_uses = Column(Integer, nullable=True)
+    used_count = Column(Integer, default=0, nullable=False)
+    per_user_limit = Column(Integer, default=1, nullable=False)
+    applicable_items = Column(Text, nullable=True)  # JSON list of item slugs/categories
+    minimum_order_items = Column(Integer, nullable=True)

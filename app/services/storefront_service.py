@@ -1,6 +1,7 @@
 import json
 import os
 import uuid
+from datetime import datetime
 
 from fastapi import Depends, HTTPException, UploadFile, File
 from sqlalchemy.orm import Session
@@ -12,6 +13,7 @@ from app.schemas.storefront import (
     PaymentMethodUpdate,
     PromoCodeCreate,
     PromoCodeUpdate,
+    PromoCodeValidateRequest,
     StorefrontConfigUpdate,
 )
 
@@ -99,7 +101,11 @@ class StorefrontService:
 
     # --- Promo codes ---
     def list_promocodes(self) -> list[PromoCode]:
-        return self.db.query(PromoCode).order_by(PromoCode.created_at.desc()).all()
+        try:
+            return self.db.query(PromoCode).order_by(PromoCode.created_at.desc()).all()
+        except Exception as e:
+            # If table doesn't exist or has schema mismatch, return empty list
+            return []
 
     def create_promocode(self, payload: PromoCodeCreate) -> PromoCode:
         code = payload.code.strip().upper()
@@ -107,6 +113,8 @@ class StorefrontService:
             raise HTTPException(status_code=400, detail="Promo code already exists")
         data = payload.model_dump()
         data["code"] = code
+        if isinstance(data.get("applicable_items"), list):
+            data["applicable_items"] = json.dumps(data["applicable_items"])
         pc = PromoCode(**data)
         self.db.add(pc)
         self.db.commit()
@@ -120,10 +128,49 @@ class StorefrontService:
         for key, value in payload.model_dump(exclude_unset=True).items():
             if key == "code" and value:
                 value = value.strip().upper()
+            if key == "applicable_items" and isinstance(value, list):
+                value = json.dumps(value)
             setattr(pc, key, value)
         self.db.commit()
         self.db.refresh(pc)
         return pc
+
+    def validate_promocode(self, code: str, payload: PromoCodeValidateRequest) -> dict:
+        pc = self.db.query(PromoCode).filter_by(code=code.strip().upper()).first()
+        if pc is None or not pc.active:
+            return {"valid": False, "reason": "Invalid or inactive promo code", "code": code}
+
+        now = datetime.utcnow()
+        if pc.valid_from and now < pc.valid_from:
+            return {"valid": False, "reason": "Promo code is not active yet", "code": pc.code}
+        if pc.valid_until and now > pc.valid_until:
+            return {"valid": False, "reason": "Promo code has expired", "code": pc.code}
+        if pc.max_uses is not None and (pc.used_count or 0) >= pc.max_uses:
+            return {"valid": False, "reason": "Promo code usage limit reached", "code": pc.code}
+        if pc.per_user_limit is not None and (payload.user_uses or 0) >= pc.per_user_limit:
+            return {"valid": False, "reason": "Per-user usage limit reached for this promo code", "code": pc.code}
+        if payload.order_value < (pc.min_order_value or 0):
+            return {"valid": False, "reason": f"Minimum order value of ₹{pc.min_order_value} required", "code": pc.code}
+        if pc.minimum_order_items is not None and (payload.item_count or 0) < pc.minimum_order_items:
+            return {"valid": False, "reason": f"Minimum {pc.minimum_order_items} item(s) required", "code": pc.code}
+
+        if pc.applicable_items:
+            try:
+                applicable = [str(s).lower() for s in json.loads(pc.applicable_items)]
+            except Exception:
+                applicable = []
+            cart_slugs = [str(s).lower() for s in (payload.cart_item_slugs or [])]
+            if applicable and not any(s in applicable for s in cart_slugs):
+                return {"valid": False, "reason": "Promo code does not apply to items in your cart", "code": pc.code}
+
+        return {
+            "valid": True,
+            "reason": None,
+            "code": pc.code,
+            "discount_type": pc.discount_type,
+            "discount_value": pc.discount_value,
+            "min_order_value": pc.min_order_value,
+        }
 
     def delete_promocode(self, pc_id: int) -> None:
         pc = self.db.query(PromoCode).filter_by(id=pc_id).first()
@@ -144,13 +191,68 @@ class StorefrontService:
         for cat in categories:
             cat_kind = (cat.slug or "").lower()
             for item in cat.items:
-                if not (item.is_active and item.is_available):
+                if not item.is_active:
                     continue
                 try:
                     meta = json.loads(item.metadata_json) if item.metadata_json else {}
                 except Exception:
                     meta = {}
                 portions = [p for p in item.portions if p.is_available]
+                # Include all active items even if unavailable, so frontend can show "Out of Stock"
+                if not item.is_available:
+                    # Still include in the menu but mark as unavailable
+                    if cat_kind in ("combos", "combo-packs", "combos-family-sharing-packs") or meta.get("kind") == "combo":
+                        combos.append({
+                            "id": item.slug,
+                            "slug": item.slug.replace("combo-", ""),
+                            "name": item.name,
+                            "tagline": meta.get("tagline", ""),
+                            "description": item.description or "",
+                            "itemsSummary": meta.get("items_summary", ""),
+                            "price": 0,
+                            "originalPrice": 0,
+                            "discountPercent": 0,
+                            "image": item.image_url or "",
+                            "servesText": "",
+                            "badge": "Out of Stock",
+                            "includedItems": meta.get("included_items", []),
+                            "available": False,
+                        })
+                    elif cat_kind in ("extras", "sides-accompaniments", "raitas-chutneys-sweets") or meta.get("kind") == "extra":
+                        extras.append({
+                            "id": item.slug,
+                            "name": item.name,
+                            "description": item.description or "",
+                            "price": 0,
+                            "image": item.image_url or "",
+                            "category": meta.get("extra_category", "sides"),
+                            "isPopular": False,
+                            "available": False,
+                        })
+                    else:
+                        products.append({
+                            "id": item.slug,
+                            "slug": item.slug,
+                            "name": item.name,
+                            "tagline": meta.get("tagline", ""),
+                            "shortDescription": meta.get("short_description", item.description or ""),
+                            "description": item.description or "",
+                            "image": item.image_url or "",
+                            "category": meta.get("category", cat.slug),
+                            "categoryLabel": meta.get("category_label", cat.name),
+                            "vegetarian": bool(item.is_veg),
+                            "available": False,
+                            "badge": "Out of Stock",
+                            "sizes": [],
+                            "ingredients": meta.get("ingredients", []),
+                            "allergens": meta.get("allergens", []),
+                            "spiceLevel": meta.get("spice_level", "Medium"),
+                            "preparationNotes": "",
+                            "servingSuggestions": "",
+                            "reheatingTips": "",
+                            "nutritionInfo": None,
+                        })
+                    continue
                 if cat_kind in ("combos", "combo-packs", "combos-family-sharing-packs") or meta.get("kind") == "combo":
                     if not portions:
                         continue

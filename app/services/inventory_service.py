@@ -380,40 +380,50 @@ class InventoryService:
         return [self._format_transaction_response(tx) for tx in txs], total, pages
 
     def get_summary(self) -> InventorySummaryResponse:
-        """Calculate inventory operational metrics and category valuations."""
-        items = self.db.query(InventoryItem).filter(InventoryItem.is_active == True).all()
+        """Calculate inventory operational metrics and category valuations using SQL aggregation."""
+        from sqlalchemy import case, and_
 
-        total_items = len(items)
-        out_of_stock = sum(1 for it in items if it.current_stock <= 0.0)
-        critical_stock = sum(1 for it in items if 0.0 < it.current_stock <= it.minimum_stock)
-        low_stock = sum(1 for it in items if it.minimum_stock < it.current_stock <= it.reorder_level)
-        in_stock = sum(1 for it in items if it.current_stock > it.reorder_level)
-        total_value = sum(it.current_stock * it.purchase_price for it in items)
+        # Single query for overall stats
+        stats = (
+            self.db.query(
+                func.count(InventoryItem.id).label("total"),
+                func.sum(case((InventoryItem.current_stock <= 0.0, 1), else_=0)).label("out_of_stock"),
+                func.sum(case((and_(InventoryItem.current_stock > 0.0, InventoryItem.current_stock <= InventoryItem.minimum_stock), 1), else_=0)).label("critical"),
+                func.sum(case((and_(InventoryItem.current_stock > InventoryItem.minimum_stock, InventoryItem.current_stock <= InventoryItem.reorder_level), 1), else_=0)).label("low"),
+                func.sum(case((InventoryItem.current_stock > InventoryItem.reorder_level, 1), else_=0)).label("in_stock"),
+                func.sum(InventoryItem.current_stock * InventoryItem.purchase_price).label("total_value"),
+            )
+            .filter(InventoryItem.is_active == True)
+            .first()
+        )
 
-        # Category breakdowns
-        cat_map: dict[str, dict[str, float]] = {}
-        for it in items:
-            cat = it.category or "OTHER"
-            if cat not in cat_map:
-                cat_map[cat] = {"count": 0, "val": 0.0}
-            cat_map[cat]["count"] += 1
-            cat_map[cat]["val"] += it.current_stock * it.purchase_price
+        # Single query for category breakdowns
+        cat_data = (
+            self.db.query(
+                InventoryItem.category,
+                func.count(InventoryItem.id).label("count"),
+                func.sum(InventoryItem.current_stock * InventoryItem.purchase_price).label("val"),
+            )
+            .filter(InventoryItem.is_active == True)
+            .group_by(InventoryItem.category)
+            .all()
+        )
 
         category_valuations = [
             CategoryValuation(
                 category=cat,
-                item_count=int(stats["count"]),
-                total_valuation=round(stats["val"], 2),
+                item_count=int(cnt),
+                total_valuation=round(float(val or 0), 2),
             )
-            for cat, stats in sorted(cat_map.items())
+            for cat, cnt, val in sorted(cat_data)
         ]
 
         return InventorySummaryResponse(
-            total_items=total_items,
-            in_stock_items=in_stock,
-            low_stock_items=low_stock,
-            critical_stock_items=critical_stock,
-            out_of_stock_items=out_of_stock,
-            total_inventory_value_inr=round(total_value, 2),
+            total_items=stats.total or 0,
+            in_stock_items=stats.in_stock or 0,
+            low_stock_items=stats.low or 0,
+            critical_stock_items=stats.critical or 0,
+            out_of_stock_items=stats.out_of_stock or 0,
+            total_inventory_value_inr=round(float(stats.total_value or 0), 2),
             category_valuations=category_valuations,
         )

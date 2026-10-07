@@ -47,7 +47,7 @@ class Order(Base, TimestampMixin):
     total_amount = Column(Float, default=0.0, nullable=False)
 
     order_status = Column(String(50), default=OrderStatus.NEW.value, index=True, nullable=False)
-    payment_status = Column(String(50), default=PaymentStatus.PAID.value, nullable=False)
+    payment_status = Column(String(50), default=PaymentStatus.PAID.value, index=True, nullable=False)
     items_summary = Column(String(500), nullable=True)
     notes = Column(String(500), nullable=True)
 

@@ -2,7 +2,7 @@ import json
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import desc, func
+from sqlalchemy import case, desc, func
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import BadRequestException, NotFoundException
@@ -19,6 +19,7 @@ from app.schemas.notification import (
     NotificationDispatchResult,
     NotificationSummary,
 )
+from app.socket_manager import emit_event
 from app.services.notifications.email_adapter import EmailNotificationAdapter
 from app.services.notifications.whatsapp_adapter import WhatsAppNotificationAdapter
 from app.utils.stock import classify_stock, needs_restock, suggest_reorder_qty
@@ -30,24 +31,33 @@ class NotificationService:
         """
         Scans all active inventory ingredients and packaging materials for low stock or critical breaches.
         Creates notifications automatically with deduplication (skips if unread alert already active for item).
+        Optimized: uses bulk queries instead of N+1 pattern.
         """
         new_notifications: list[Notification] = []
 
-        # 1. Scan Ingredients (inventory_items)
-        ingredients = db.query(InventoryItem).filter(InventoryItem.is_active == True).all()
-        for item in ingredients:
-            if needs_restock(item.current_stock, item.reorder_level):
-                # Check for existing unread alert
-                existing = (
-                    db.query(Notification)
-                    .filter(
-                        Notification.entity_type == "INVENTORY",
-                        Notification.entity_id == item.id,
-                        Notification.is_read == False,
-                    )
-                    .first()
+        # 1. Scan Ingredients (inventory_items) - single query for low stock items
+        low_stock_ingredients = (
+            db.query(InventoryItem)
+            .filter(InventoryItem.is_active == True, InventoryItem.current_stock <= InventoryItem.reorder_level)
+            .all()
+        )
+
+        if low_stock_ingredients:
+            # Bulk check for existing unread alerts - single query with IN clause
+            ingredient_ids = [item.id for item in low_stock_ingredients]
+            existing_alerts = (
+                db.query(Notification.entity_type, Notification.entity_id)
+                .filter(
+                    Notification.entity_type == "INVENTORY",
+                    Notification.entity_id.in_(ingredient_ids),
+                    Notification.is_read == False,
                 )
-                if not existing:
+                .all()
+            )
+            existing_set = {(e[0], e[1]) for e in existing_alerts}
+
+            for item in low_stock_ingredients:
+                if ("INVENTORY", item.id) not in existing_set:
                     status = classify_stock(item.current_stock, item.minimum_stock, item.reorder_level)
                     is_critical = status in ("CRITICAL", "OUT_OF_STOCK")
                     is_zero = status == "OUT_OF_STOCK"
@@ -76,7 +86,7 @@ class NotificationService:
                         "reorder_level": item.reorder_level,
                         "minimum_stock": item.minimum_stock,
                         "suggested_qty": suggest_reorder_qty(item.current_stock, item.reorder_level, min_qty=1.0),
-                        "supplier": item.supplier or "Local Mandi / Agro Vendor",
+                        "supplier": item.supplier or "Unknown",
                         "estimated_cost": round(
                             suggest_reorder_qty(item.current_stock, item.reorder_level, min_qty=1.0)
                             * item.purchase_price,
@@ -99,20 +109,29 @@ class NotificationService:
                     db.add(notif)
                     new_notifications.append(notif)
 
-        # 2. Scan Packaging materials (packaging_items)
-        packagings = db.query(PackagingItem).filter(PackagingItem.is_active == True).all()
-        for item in packagings:
-            if needs_restock(item.current_stock, item.reorder_level):
-                existing = (
-                    db.query(Notification)
-                    .filter(
-                        Notification.entity_type == "PACKAGING",
-                        Notification.entity_id == item.id,
-                        Notification.is_read == False,
-                    )
-                    .first()
+        # 2. Scan Packaging materials (packaging_items) - single query for low stock items
+        low_stock_packagings = (
+            db.query(PackagingItem)
+            .filter(PackagingItem.is_active == True, PackagingItem.current_stock <= PackagingItem.reorder_level)
+            .all()
+        )
+
+        if low_stock_packagings:
+            # Bulk check for existing unread alerts - single query with IN clause
+            packaging_ids = [item.id for item in low_stock_packagings]
+            existing_alerts = (
+                db.query(Notification.entity_type, Notification.entity_id)
+                .filter(
+                    Notification.entity_type == "PACKAGING",
+                    Notification.entity_id.in_(packaging_ids),
+                    Notification.is_read == False,
                 )
-                if not existing:
+                .all()
+            )
+            existing_set = {(e[0], e[1]) for e in existing_alerts}
+
+            for item in low_stock_packagings:
+                if ("PACKAGING", item.id) not in existing_set:
                     status = classify_stock(item.current_stock, item.minimum_stock, item.reorder_level)
                     is_critical = status in ("CRITICAL", "OUT_OF_STOCK")
                     is_zero = status == "OUT_OF_STOCK"
@@ -143,7 +162,7 @@ class NotificationService:
                         "suggested_qty": suggest_reorder_qty(
                             item.current_stock, item.reorder_level, min_qty=10.0, whole_units=True
                         ),
-                        "supplier": item.supplier or "EcoPackaging India",
+                        "supplier": item.supplier or "Unknown",
                         "estimated_cost": round(
                             suggest_reorder_qty(item.current_stock, item.reorder_level, min_qty=10.0, whole_units=True)
                             * item.purchase_cost,
@@ -170,6 +189,14 @@ class NotificationService:
             db.commit()
             for n in new_notifications:
                 db.refresh(n)
+            # Push realtime event so CRM clients can update the unread badge instantly
+            emit_event(
+                "notification_created",
+                {
+                    "new_count": len(new_notifications),
+                    "unread_count": NotificationService.get_unread_count(db),
+                },
+            )
 
         return len(new_notifications), new_notifications
 
@@ -200,58 +227,66 @@ class NotificationService:
 
     @staticmethod
     def get_summary(db: Session) -> NotificationSummary:
-        total = db.query(func.count(Notification.id)).scalar() or 0
-        unread = db.query(func.count(Notification.id)).filter(Notification.is_read == False).scalar() or 0
-        critical = (
-            db.query(func.count(Notification.id))
-            .filter(
-                Notification.severity == NotificationSeverity.CRITICAL.value,
-                Notification.is_read == False,
+        # Single query with conditional aggregation instead of 6 separate COUNT queries
+        from sqlalchemy import and_
+
+        result = (
+            db.query(
+                func.count(Notification.id).label("total"),
+                func.sum(case((Notification.is_read == False, 1), else_=0)).label("unread"),
+                func.sum(
+                    case(
+                        (and_(
+                            Notification.severity == NotificationSeverity.CRITICAL.value,
+                            Notification.is_read == False,
+                        ), 1),
+                        else_=0,
+                    )
+                ).label("critical"),
+                func.sum(
+                    case(
+                        (and_(
+                            Notification.severity == NotificationSeverity.WARNING.value,
+                            Notification.is_read == False,
+                        ), 1),
+                        else_=0,
+                    )
+                ).label("warning"),
+                func.sum(
+                    case(
+                        (and_(
+                            Notification.type.in_(
+                                [
+                                    NotificationType.LOW_STOCK.value,
+                                    NotificationType.CRITICAL_STOCK.value,
+                                    NotificationType.OUT_OF_STOCK.value,
+                                ]
+                            ),
+                            Notification.is_read == False,
+                        ), 1),
+                        else_=0,
+                    )
+                ).label("stock_alerts"),
+                func.sum(
+                    case(
+                        (and_(
+                            Notification.type == NotificationType.ORDER_ALERT.value,
+                            Notification.is_read == False,
+                        ), 1),
+                        else_=0,
+                    )
+                ).label("order_alerts"),
             )
-            .scalar()
-            or 0
-        )
-        warning = (
-            db.query(func.count(Notification.id))
-            .filter(
-                Notification.severity == NotificationSeverity.WARNING.value,
-                Notification.is_read == False,
-            )
-            .scalar()
-            or 0
-        )
-        stock_alerts = (
-            db.query(func.count(Notification.id))
-            .filter(
-                Notification.type.in_(
-                    [
-                        NotificationType.LOW_STOCK.value,
-                        NotificationType.CRITICAL_STOCK.value,
-                        NotificationType.OUT_OF_STOCK.value,
-                    ]
-                ),
-                Notification.is_read == False,
-            )
-            .scalar()
-            or 0
-        )
-        order_alerts = (
-            db.query(func.count(Notification.id))
-            .filter(
-                Notification.type == NotificationType.ORDER_ALERT.value,
-                Notification.is_read == False,
-            )
-            .scalar()
-            or 0
+            .first()
         )
 
         return NotificationSummary(
-            total_notifications=total,
-            unread_count=unread,
-            critical_count=critical,
-            warning_count=warning,
-            stock_alert_count=stock_alerts,
-            order_alert_count=order_alerts,
+            total_notifications=result.total or 0,
+            unread_count=result.unread or 0,
+            critical_count=result.critical or 0,
+            warning_count=result.warning or 0,
+            stock_alert_count=result.stock_alerts or 0,
+            order_alert_count=result.order_alerts or 0,
         )
 
     @staticmethod

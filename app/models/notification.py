@@ -43,8 +43,8 @@ class Notification(Base, TimestampMixin):
     message = Column(Text, nullable=False)
     type = Column(String(50), default=NotificationType.LOW_STOCK.value, nullable=False, index=True)
     severity = Column(String(50), default=NotificationSeverity.WARNING.value, nullable=False, index=True)
-    entity_type = Column(String(50), nullable=True)  # INVENTORY, PACKAGING, ORDER, RESTOCK_PO
-    entity_id = Column(Integer, nullable=True)
+    entity_type = Column(String(50), index=True, nullable=True)  # INVENTORY, PACKAGING, ORDER, RESTOCK_PO
+    entity_id = Column(Integer, index=True, nullable=True)
     is_read = Column(Boolean, default=False, nullable=False, index=True)
     channel = Column(String(50), default=NotificationChannel.IN_APP.value, nullable=False)
     channel_status = Column(String(50), default=NotificationChannelStatus.SENT.value, nullable=False)

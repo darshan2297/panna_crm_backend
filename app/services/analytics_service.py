@@ -3,7 +3,7 @@ import io
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import func
+from sqlalchemy import case, func
 from sqlalchemy.orm import Session
 
 from app.models.customer import Customer
@@ -35,10 +35,20 @@ class AnalyticsService:
         start_date = now - timedelta(days=days - 1)
         start_date_naive = start_date.replace(hour=0, minute=0, second=0, microsecond=0, tzinfo=None)
 
-        # Query all orders in window
-        orders = self.db.query(Order).filter(Order.created_at >= start_date_naive).all()
+        # Single query with GROUP BY instead of loading all orders into memory
+        trend_data = (
+            self.db.query(
+                func.date(Order.created_at).label("day"),
+                Order.platform,
+                func.count(Order.id).label("order_count"),
+                func.sum(Order.total_amount).label("revenue"),
+            )
+            .filter(Order.created_at >= start_date_naive)
+            .group_by(func.date(Order.created_at), Order.platform)
+            .all()
+        )
 
-        # Bucket by day YYYY-MM-DD
+        # Build day buckets
         day_buckets: dict[str, dict[str, Any]] = {}
         for d in range(days):
             day_dt = start_date + timedelta(days=d)
@@ -57,22 +67,22 @@ class AnalyticsService:
         total_rev = 0.0
         total_orders = 0
 
-        for order in orders:
-            order_date_str = order.created_at.strftime("%Y-%m-%d")
-            if order_date_str in day_buckets:
-                amount = float(order.total_amount or 0.0)
-                day_buckets[order_date_str]["total_revenue"] += amount
-                day_buckets[order_date_str]["order_count"] += 1
-                total_rev += amount
-                total_orders += 1
+        for day, platform, order_count, revenue in trend_data:
+            day_str = str(day)
+            if day_str in day_buckets:
+                amt = float(revenue or 0)
+                day_buckets[day_str]["total_revenue"] += amt
+                day_buckets[day_str]["order_count"] += order_count
+                total_rev += amt
+                total_orders += order_count
 
-                p = str(order.platform or "").upper()
+                p = str(platform or "").upper()
                 if "ZOMATO" in p:
-                    day_buckets[order_date_str]["zomato_revenue"] += amount
+                    day_buckets[day_str]["zomato_revenue"] += amt
                 elif "SWIGGY" in p:
-                    day_buckets[order_date_str]["swiggy_revenue"] += amount
+                    day_buckets[day_str]["swiggy_revenue"] += amt
                 else:
-                    day_buckets[order_date_str]["website_revenue"] += amount
+                    day_buckets[day_str]["website_revenue"] += amt
 
         items: list[SalesTrendItem] = []
         for day_str in sorted(day_buckets.keys()):
@@ -152,7 +162,17 @@ class AnalyticsService:
         start_date = datetime.now(UTC) - timedelta(days=days)
         start_date_naive = start_date.replace(tzinfo=None)
 
-        orders = self.db.query(Order).filter(Order.created_at >= start_date_naive).all()
+        # Single query with GROUP BY instead of loading all orders
+        platform_data = (
+            self.db.query(
+                Order.platform,
+                func.count(Order.id).label("order_count"),
+                func.sum(Order.total_amount).label("revenue"),
+            )
+            .filter(Order.created_at >= start_date_naive)
+            .group_by(Order.platform)
+            .all()
+        )
 
         stats = {
             "WEBSITE": {"count": 0, "rev": 0.0, "name": "Direct Website", "rate": 0.0},
@@ -161,19 +181,19 @@ class AnalyticsService:
         }
 
         total_gross = 0.0
-        for o in orders:
-            p = str(o.platform or "").upper()
-            amt = float(o.total_amount or 0.0)
+        for platform, order_count, revenue in platform_data:
+            p = str(platform or "").upper()
+            amt = float(revenue or 0.0)
             total_gross += amt
             if "ZOMATO" in p:
-                stats["ZOMATO"]["count"] += 1
-                stats["ZOMATO"]["rev"] += amt
+                stats["ZOMATO"]["count"] = order_count
+                stats["ZOMATO"]["rev"] = amt
             elif "SWIGGY" in p:
-                stats["SWIGGY"]["count"] += 1
-                stats["SWIGGY"]["rev"] += amt
+                stats["SWIGGY"]["count"] = order_count
+                stats["SWIGGY"]["rev"] = amt
             else:
-                stats["WEBSITE"]["count"] += 1
-                stats["WEBSITE"]["rev"] += amt
+                stats["WEBSITE"]["count"] = order_count
+                stats["WEBSITE"]["rev"] = amt
 
         platforms_list: list[PlatformBreakdownMetric] = []
         total_comm = 0.0
@@ -217,7 +237,18 @@ class AnalyticsService:
         start_date = datetime.now(UTC) - timedelta(days=days)
         start_date_naive = start_date.replace(tzinfo=None)
 
-        orders = self.db.query(Order).filter(Order.created_at >= start_date_naive).all()
+        # Single query with GROUP BY instead of loading all orders
+        velocity_data = (
+            self.db.query(
+                func.extract("dow", Order.created_at).label("dow"),
+                func.extract("hour", Order.created_at).label("hour"),
+                func.count(Order.id).label("order_count"),
+                func.sum(Order.total_amount).label("revenue"),
+            )
+            .filter(Order.created_at >= start_date_naive)
+            .group_by(func.extract("dow", Order.created_at), func.extract("hour", Order.created_at))
+            .all()
+        )
 
         day_names = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
         matrix = {(d, h): {"count": 0, "rev": 0.0} for d in range(7) for h in range(24)}
@@ -225,18 +256,18 @@ class AnalyticsService:
         peak_hour = 20
         peak_day = "Sun"
         max_orders = 0
-        total_analyzed = len(orders)
+        total_analyzed = 0
 
-        for o in orders:
-            dt = o.created_at
-            dow = dt.weekday()  # 0=Monday, 6=Sunday
-            h = dt.hour
-            matrix[(dow, h)]["count"] += 1
-            matrix[(dow, h)]["rev"] += float(o.total_amount or 0.0)
-            if matrix[(dow, h)]["count"] > max_orders:
-                max_orders = matrix[(dow, h)]["count"]
+        for dow, hour, order_count, revenue in velocity_data:
+            d = int(dow) % 7  # Convert to 0-6 (Monday=0)
+            h = int(hour)
+            matrix[(d, h)]["count"] = order_count
+            matrix[(d, h)]["rev"] = float(revenue or 0.0)
+            total_analyzed += order_count
+            if order_count > max_orders:
+                max_orders = order_count
                 peak_hour = h
-                peak_day = day_names[dow]
+                peak_day = day_names[d]
 
         cells: list[HourlyVelocityCell] = []
         for dow in range(7):
@@ -261,9 +292,18 @@ class AnalyticsService:
         )
 
     def get_customer_segments(self) -> CustomerSegmentsResponse:
-        customers = self.db.query(Customer).all()
-        total_cust = len(customers)
+        # Single query with GROUP BY instead of loading all customers
+        segment_data = (
+            self.db.query(
+                Customer.segment,
+                func.count(Customer.id).label("customer_count"),
+                func.sum(Customer.total_spent).label("total_spent"),
+            )
+            .group_by(Customer.segment)
+            .all()
+        )
 
+        total_cust = 0
         buckets = {
             "VIP": {"count": 0, "spent": 0.0},
             "REGULAR": {"count": 0, "spent": 0.0},
@@ -272,13 +312,14 @@ class AnalyticsService:
         }
 
         total_rev = 0.0
-        for c in customers:
-            seg = str(c.segment or "NEW").upper()
+        for segment, customer_count, total_spent in segment_data:
+            seg = str(segment or "NEW").upper()
             if seg not in buckets:
                 seg = "NEW"
-            spent = float(c.total_spent or 0.0)
-            buckets[seg]["count"] += 1
-            buckets[seg]["spent"] += spent
+            spent = float(total_spent or 0.0)
+            buckets[seg]["count"] = customer_count
+            buckets[seg]["spent"] = spent
+            total_cust += customer_count
             total_rev += spent
 
         metrics: list[CustomerSegmentMetric] = []
@@ -357,25 +398,31 @@ class AnalyticsService:
         start_date = datetime.now(UTC) - timedelta(days=days)
         start_date_naive = start_date.replace(tzinfo=None)
 
-        orders = self.db.query(Order).filter(Order.created_at >= start_date_naive).all()
+        # Single query with conditional aggregation instead of loading all orders
+        result = (
+            self.db.query(
+                func.count(Order.id).label("order_count"),
+                func.sum(Order.total_amount).label("gross_revenue"),
+                func.sum(
+                    case(
+                        (Order.platform == "ZOMATO", Order.total_amount * 0.22),
+                        (Order.platform == "SWIGGY", Order.total_amount * 0.20),
+                        else_=0.0,
+                    )
+                ).label("commissions"),
+            )
+            .filter(Order.created_at >= start_date_naive)
+            .first()
+        )
 
-        gross_rev = sum(float(o.total_amount or 0.0) for o in orders)
-        order_count = len(orders)
+        order_count = result.order_count or 0
+        gross_rev = float(result.gross_revenue or 0.0)
+        commissions = round(float(result.commissions or 0.0), 2)
 
         # Realistic Food Cost ratio ~30%, Packaging ~4.5%, Platform commissions ~13.5%
         ingredient_cost = round(gross_rev * 0.30, 2)
         packaging_cost = round(gross_rev * 0.045, 2)
 
-        commissions = 0.0
-        for o in orders:
-            p = str(o.platform or "").upper()
-            amt = float(o.total_amount or 0.0)
-            if "ZOMATO" in p:
-                commissions += amt * 0.22
-            elif "SWIGGY" in p:
-                commissions += amt * 0.20
-
-        commissions = round(commissions, 2)
         total_cogs = round(ingredient_cost + packaging_cost + commissions, 2)
         gross_profit = round(gross_rev - total_cogs, 2)
         margin_pct = round((gross_profit / gross_rev * 100), 1) if gross_rev > 0 else 0.0

@@ -40,35 +40,33 @@ class CustomerService:
         self.db = db
 
     def get_summary(self) -> CustomerSummary:
+        from sqlalchemy import case
+
         now = datetime.now(UTC)
         month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
 
-        total = self.db.query(func.count(Customer.id)).scalar() or 0
-        total_revenue = self.db.query(func.coalesce(func.sum(Customer.total_spent), 0.0)).scalar() or 0.0
-        avg_spent = self.db.query(func.coalesce(func.avg(Customer.total_spent), 0.0)).scalar() or 0.0
-
-        # Segment counts
-        vip = self.db.query(func.count(Customer.id)).filter(Customer.segment == CustomerSegment.VIP.value).scalar() or 0
-        regular = (
-            self.db.query(func.count(Customer.id)).filter(Customer.segment == CustomerSegment.REGULAR.value).scalar()
-            or 0
+        # Single query with conditional aggregation instead of 7 separate queries
+        stats = (
+            self.db.query(
+                func.count(Customer.id).label("total"),
+                func.coalesce(func.sum(Customer.total_spent), 0.0).label("total_revenue"),
+                func.coalesce(func.avg(Customer.total_spent), 0.0).label("avg_spent"),
+                func.sum(case((Customer.segment == CustomerSegment.VIP.value, 1), else_=0)).label("vip"),
+                func.sum(case((Customer.segment == CustomerSegment.REGULAR.value, 1), else_=0)).label("regular"),
+                func.sum(case((Customer.segment == CustomerSegment.LAPSED.value, 1), else_=0)).label("lapsed"),
+                func.sum(case((Customer.created_at >= month_start, 1), else_=0)).label("new_count"),
+            )
+            .first()
         )
-        lapsed = (
-            self.db.query(func.count(Customer.id)).filter(Customer.segment == CustomerSegment.LAPSED.value).scalar()
-            or 0
-        )
-
-        # New this month
-        new_count = self.db.query(func.count(Customer.id)).filter(Customer.created_at >= month_start).scalar() or 0
 
         return CustomerSummary(
-            total_customers=total,
-            new_customers=new_count,
-            vip_customers=vip,
-            regular_customers=regular,
-            lapsed_customers=lapsed,
-            total_revenue=total_revenue,
-            average_order_value=round(avg_spent, 2),
+            total_customers=stats.total or 0,
+            new_customers=stats.new_count or 0,
+            vip_customers=stats.vip or 0,
+            regular_customers=stats.regular or 0,
+            lapsed_customers=stats.lapsed or 0,
+            total_revenue=float(stats.total_revenue or 0),
+            average_order_value=round(float(stats.avg_spent or 0), 2),
         )
 
     def list_customers(
@@ -240,7 +238,7 @@ class CustomerService:
 
     def refresh_all_segments(self) -> int:
         """Batch-refresh segments for all customers. Returns count updated."""
-        customers = self.db.query(Customer).all()
+        customers = self.db.query(Customer.id, Customer.total_orders, Customer.total_spent, Customer.last_order_date).all()
         updated = 0
         for c in customers:
             new_seg = _compute_segment(c)

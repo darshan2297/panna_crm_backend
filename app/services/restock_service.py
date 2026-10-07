@@ -24,6 +24,7 @@ from app.schemas.restock_order import (
     RestockSuggestionItem,
     RestockSummary,
 )
+from app.socket_manager import emit_event
 from app.utils.stock import STATUS_PRIORITY, classify_stock, needs_restock, suggest_reorder_qty
 
 
@@ -62,7 +63,7 @@ class RestockService:
                             purchase_cost=item.purchase_price,
                             suggested_order_qty=suggested_qty,
                             estimated_cost=est_cost,
-                            supplier=item.supplier or "Local Mandi / Agro Vendor",
+                            supplier=item.supplier or "Unknown",
                             status=status,
                         )
                     )
@@ -92,7 +93,7 @@ class RestockService:
                             purchase_cost=item.purchase_cost,
                             suggested_order_qty=suggested_qty,
                             estimated_cost=est_cost,
-                            supplier=item.supplier or "EcoPackaging India",
+                            supplier=item.supplier or "Unknown",
                             status=status,
                         )
                     )
@@ -100,6 +101,26 @@ class RestockService:
         # Sort: OUT_OF_STOCK first, then CRITICAL, then LOW_STOCK
         suggestions.sort(key=lambda s: (STATUS_PRIORITY.get(s.status, 3), -s.estimated_cost))
         return suggestions
+
+    @staticmethod
+    def get_distinct_suppliers(db: Session) -> list[str]:
+        """Distinct, non-empty supplier names across inventory and packaging items."""
+        inv_suppliers = (
+            db.query(InventoryItem.supplier)
+            .filter(InventoryItem.supplier.isnot(None))
+            .filter(InventoryItem.supplier != "")
+            .distinct()
+            .all()
+        )
+        pkg_suppliers = (
+            db.query(PackagingItem.supplier)
+            .filter(PackagingItem.supplier.isnot(None))
+            .filter(PackagingItem.supplier != "")
+            .distinct()
+            .all()
+        )
+        names = {row[0].strip() for row in (*inv_suppliers, *pkg_suppliers) if row[0] and row[0].strip()}
+        return sorted(names, key=str.lower)
 
     @staticmethod
     def get_restock_summary(db: Session) -> RestockSummary:
@@ -222,6 +243,16 @@ class RestockService:
         )
         db.add(notif)
         db.commit()
+        emit_event(
+            "notification_created",
+            {
+                "new_count": 1,
+                "unread_count": db.query(func.count(Notification.id))
+                .filter(Notification.is_read == False)  # noqa: E712
+                .scalar()
+                or 0,
+            },
+        )
 
         return order
 
@@ -337,5 +368,15 @@ class RestockService:
         )
         db.add(notif)
         db.commit()
+        emit_event(
+            "notification_created",
+            {
+                "new_count": 1,
+                "unread_count": db.query(func.count(Notification.id))
+                .filter(Notification.is_read == False)  # noqa: E712
+                .scalar()
+                or 0,
+            },
+        )
         db.refresh(order)
         return order

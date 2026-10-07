@@ -1,6 +1,7 @@
+import json
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class StorefrontConfigResponse(BaseModel):
@@ -95,6 +96,13 @@ class PromoCodeCreate(BaseModel):
     min_order_value: float = Field(0.0, ge=0)
     badge: str | None = None
     active: bool = True
+    valid_from: datetime | None = None
+    valid_until: datetime | None = None
+    max_uses: int | None = Field(None, ge=0)
+    used_count: int = Field(0, ge=0)
+    per_user_limit: int = Field(1, ge=0)
+    applicable_items: list[str] | None = None
+    minimum_order_items: int | None = Field(None, ge=0)
 
 
 class PromoCodeUpdate(BaseModel):
@@ -108,6 +116,12 @@ class PromoCodeUpdate(BaseModel):
     min_order_value: float | None = Field(None, ge=0)
     badge: str | None = None
     active: bool | None = None
+    valid_from: datetime | None = None
+    valid_until: datetime | None = None
+    max_uses: int | None = Field(None, ge=0)
+    per_user_limit: int | None = Field(None, ge=0)
+    applicable_items: list[str] | None = None
+    minimum_order_items: int | None = Field(None, ge=0)
 
 
 class PromoCodeResponse(BaseModel):
@@ -122,7 +136,41 @@ class PromoCodeResponse(BaseModel):
     min_order_value: float
     badge: str | None = None
     active: bool
+    valid_from: datetime | None = None
+    valid_until: datetime | None = None
+    max_uses: int | None = None
+    used_count: int = 0
+    per_user_limit: int = 1
+    applicable_items: list[str] | None = None
+    minimum_order_items: int | None = None
     created_at: datetime
     updated_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+    @field_validator("applicable_items", mode="before")
+    @classmethod
+    def _parse_applicable_items(cls, v):
+        if isinstance(v, str):
+            try:
+                parsed = json.loads(v)
+                return parsed if isinstance(parsed, list) else None
+            except Exception:
+                return None
+        return v
+
+
+class PromoCodeValidateRequest(BaseModel):
+    order_value: float = Field(0.0, ge=0)
+    item_count: int = Field(0, ge=0)
+    cart_item_slugs: list[str] | None = None
+    user_uses: int = Field(0, ge=0)
+
+
+class PromoCodeValidateResult(BaseModel):
+    valid: bool
+    reason: str | None = None
+    code: str | None = None
+    discount_type: str | None = None
+    discount_value: float | None = None
+    min_order_value: float | None = None

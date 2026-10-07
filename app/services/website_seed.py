@@ -1,4 +1,4 @@
-"""Seed website storefront data (config, payment methods, promocodes, website menu)."""
+"""Seed website storefront data (config, payment methods, promocodes, website menu, reviews, FAQs, delivery areas)."""
 import json
 
 from sqlalchemy.orm import Session
@@ -6,6 +6,9 @@ from sqlalchemy.orm import Session
 from app.core.logging import logger
 from app.models.menu import MenuCategory, MenuItem, MenuItemPortion
 from app.models.storefront import PaymentMethodConfig, PromoCode, StorefrontConfig
+from app.models.review import Review
+from app.models.faq import FAQ
+from app.models.delivery_area import DeliveryArea
 from app.services.storefront_service import DEFAULT_STOREFRONT_CONFIG
 
 
@@ -262,3 +265,80 @@ def seed_website_menu(db: Session) -> None:
     if seeded_any:
         db.commit()
         logger.info("Seeded website menu categories into CRM menu catalog")
+
+
+def seed_reviews(db: Session) -> None:
+    """Seed default customer reviews if none exist."""
+    if db.query(Review).count() > 0:
+        return
+    db.add_all([
+        Review(customer_name="Priya Sharma", location="Vesu, Surat", rating=5,
+               review_text="Best veg biryani in Surat! The dum cooking really shows in every bite. My family orders every weekend now.",
+               verified_order=True, dish_loved="Panna Veg Dum Biryani", sort_order=1),
+        Review(customer_name="Rahul Patel", location="Adajan, Surat", rating=5,
+               review_text="Ordered the Royal Dum Biryani for a family gathering. The cashew topping and smoky flavour were incredible. Highly recommended!",
+               verified_order=True, dish_loved="Panna Royal Dum Biryani", sort_order=2),
+        Review(customer_name="Sneha Desai", location="City Light, Surat", rating=4,
+               review_text="Great taste and generous portions. The paneer was soft and fresh. Delivery was on time and food was still hot.",
+               verified_order=True, dish_loved="Panna Paneer Dum Biryani", sort_order=3),
+        Review(customer_name="Amit Trivedi", location="Vesu, Surat", rating=5,
+               review_text="The Hyderabadi style biryani with green masala is unique and delicious. You can taste the fresh herbs. Will order again!",
+               verified_order=True, dish_loved="Panna Hyderabadi Dum Biryani", sort_order=4),
+    ])
+    db.commit()
+    logger.info("Seeded default customer reviews")
+
+
+def seed_faqs(db: Session) -> None:
+    """Seed default FAQs if none exist."""
+    if db.query(FAQ).count() > 0:
+        return
+    db.add_all([
+        FAQ(question="Is your biryani 100% vegetarian?",
+            answer="Yes! All our biryanis are 100% pure vegetarian. We use fresh vegetables, paneer, and aromatic spices. No meat or meat-based products are used in our kitchen.",
+            category="food", sort_order=1),
+        FAQ(question="What are your delivery areas in Surat?",
+            answer="We deliver across Surat including Vesu, Adajan, City Light, Ghod Dod Road, Parle Point, and many more areas. Enter your pincode at checkout to confirm delivery availability.",
+            category="delivery", sort_order=2),
+        FAQ(question="How long does delivery take?",
+            answer="Standard delivery takes 30-45 minutes depending on your location and order volume. During peak hours (7-9 PM), it may take up to 60 minutes.",
+            category="delivery", sort_order=3),
+        FAQ(question="What is the minimum order value?",
+            answer="There is no minimum order for pickup. For delivery, minimum order is ₹199. Free delivery is available on orders above ₹800.",
+            category="ordering", sort_order=4),
+        FAQ(question="Do you offer bulk orders for events?",
+            answer="Yes! We cater for parties, corporate events, and celebrations. Use our bulk order form or call us directly for customised packages and pricing.",
+            category="bulk", sort_order=5),
+        FAQ(question="How do I track my order?",
+            answer="After placing your order, you'll receive an order number. Use the order tracking page on our website to see real-time status updates.",
+            category="ordering", sort_order=6),
+        FAQ(question="What are your kitchen timings?",
+            answer="Our kitchen operates from 5:00 PM to 11:00 PM, Monday to Sunday. You can pre-order anytime and we'll schedule your delivery during operating hours.",
+            category="ordering", sort_order=7),
+    ])
+    db.commit()
+    logger.info("Seeded default FAQs")
+
+
+def seed_delivery_areas(db: Session) -> None:
+    """Seed default delivery areas if none exist."""
+    if db.query(DeliveryArea).count() > 0:
+        return
+    db.add_all([
+        DeliveryArea(name="Vesu", pincode="395007", delivery_fee=30, estimated_minutes=30, min_order=199, sort_order=1),
+        DeliveryArea(name="Adajan", pincode="395009", delivery_fee=35, estimated_minutes=35, min_order=199, sort_order=2),
+        DeliveryArea(name="City Light", pincode="395007", delivery_fee=30, estimated_minutes=30, min_order=199, sort_order=3),
+        DeliveryArea(name="Ghod Dod Road", pincode="395007", delivery_fee=35, estimated_minutes=35, min_order=199, sort_order=4),
+        DeliveryArea(name="Parle Point", pincode="395007", delivery_fee=35, estimated_minutes=35, min_order=199, sort_order=5),
+        DeliveryArea(name="Athwalines", pincode="395001", delivery_fee=40, estimated_minutes=40, min_order=199, sort_order=6),
+        DeliveryArea(name="Nanpura", pincode="395001", delivery_fee=40, estimated_minutes=40, min_order=199, sort_order=7),
+        DeliveryArea(name="Varachha", pincode="395006", delivery_fee=45, estimated_minutes=45, min_order=249, sort_order=8),
+        DeliveryArea(name="Katargam", pincode="395004", delivery_fee=45, estimated_minutes=45, min_order=249, sort_order=9),
+        DeliveryArea(name="Udhna", pincode="394210", delivery_fee=50, estimated_minutes=50, min_order=299, sort_order=10),
+        DeliveryArea(name="Piplod", pincode="395007", delivery_fee=35, estimated_minutes=35, min_order=199, sort_order=11),
+        DeliveryArea(name="Bhatar", pincode="395001", delivery_fee=40, estimated_minutes=40, min_order=199, sort_order=12),
+        DeliveryArea(name="Althan", pincode="395017", delivery_fee=50, estimated_minutes=50, min_order=299, sort_order=13),
+        DeliveryArea(name="Sachin", pincode="394230", delivery_fee=55, estimated_minutes=55, min_order=299, sort_order=14),
+    ])
+    db.commit()
+    logger.info("Seeded default delivery areas")
