@@ -7,13 +7,20 @@ from fastapi import Depends, HTTPException, UploadFile, File
 from sqlalchemy.orm import Session
 
 from app.models.menu import MenuCategory, MenuItem
-from app.models.storefront import PaymentMethodConfig, PromoCode, StorefrontConfig
+from app.models.storefront import (
+    PaymentMethodConfig,
+    PromoCode,
+    PromoCodeUsage,
+    PromoEvent,
+    StorefrontConfig,
+)
 from app.schemas.storefront import (
     PaymentMethodCreate,
     PaymentMethodUpdate,
     PromoCodeCreate,
     PromoCodeUpdate,
     PromoCodeValidateRequest,
+    PromoEventInput,
     StorefrontConfigUpdate,
 )
 
@@ -103,19 +110,35 @@ class StorefrontService:
     def list_promocodes(self) -> list[PromoCode]:
         try:
             return self.db.query(PromoCode).order_by(PromoCode.created_at.desc()).all()
-        except Exception as e:
+        except Exception:
             # If table doesn't exist or has schema mismatch, return empty list
             return []
+
+    def _apply_events(self, pc: PromoCode, events: list[PromoEventInput] | None) -> None:
+        """Replace the promo's campaign windows. `events=None` leaves them untouched."""
+        if events is None:
+            return
+        for ev in pc.events:
+            self.db.delete(ev)
+        pc.events = [
+            PromoEvent(
+                event_title=e.event_title.strip(),
+                start_date=e.start_date,
+                end_date=e.end_date,
+            )
+            for e in events
+        ]
 
     def create_promocode(self, payload: PromoCodeCreate) -> PromoCode:
         code = payload.code.strip().upper()
         if self.db.query(PromoCode).filter_by(code=code).first():
             raise HTTPException(status_code=400, detail="Promo code already exists")
-        data = payload.model_dump()
+        data = payload.model_dump(exclude={"events"})
         data["code"] = code
         if isinstance(data.get("applicable_items"), list):
             data["applicable_items"] = json.dumps(data["applicable_items"])
         pc = PromoCode(**data)
+        self._apply_events(pc, payload.events)
         self.db.add(pc)
         self.db.commit()
         self.db.refresh(pc)
@@ -125,15 +148,80 @@ class StorefrontService:
         pc = self.db.query(PromoCode).filter_by(id=pc_id).first()
         if pc is None:
             raise HTTPException(status_code=404, detail="Promo code not found")
-        for key, value in payload.model_dump(exclude_unset=True).items():
+        data = payload.model_dump(exclude_unset=True)
+        events = data.pop("events", None)
+        for key, value in data.items():
             if key == "code" and value:
                 value = value.strip().upper()
             if key == "applicable_items" and isinstance(value, list):
                 value = json.dumps(value)
             setattr(pc, key, value)
+        if events is not None:
+            self._apply_events(pc, payload.events)
         self.db.commit()
         self.db.refresh(pc)
         return pc
+
+    def record_promocode_usage(self, promo_code_id: int, customer_phone: str, order_id: int | None) -> PromoCodeUsage:
+        """Log a redemption so `per_user_limit` is enforced from real history.
+
+        A unique index on (promo_code_id, customer_phone) means a second
+        redemption for the same customer raises instead of double-counting.
+        """
+        phone = self._normalise_phone(customer_phone)
+        if not phone:
+            raise HTTPException(status_code=400, detail="A valid 10-digit phone is required")
+
+        promo = self.db.query(PromoCode).filter_by(id=promo_code_id).first()
+        if promo is None:
+            raise HTTPException(status_code=404, detail="Promo code not found")
+
+        already = (
+            self.db.query(PromoCodeUsage)
+            .filter_by(promo_code_id=promo_code_id, customer_phone=phone)
+            .first()
+        )
+        if already is not None:
+            raise HTTPException(
+                status_code=409,
+                detail="This promo code has already been used with this phone number",
+            )
+
+        usage = PromoCodeUsage(
+            promo_code_id=promo_code_id,
+            customer_phone=phone,
+            order_id=order_id,
+        )
+        promo.used_count = (promo.used_count or 0) + 1
+        self.db.add(usage)
+        self.db.flush()
+        self.db.commit()
+        return usage
+
+    @staticmethod
+    def _normalise_phone(phone: str | None) -> str | None:
+        """Reduce any phone format to the last 10 digits."""
+        if not phone:
+            return None
+        digits = "".join(ch for ch in phone if ch.isdigit())
+        return digits[-10:] if len(digits) >= 10 else None
+
+    def _has_previous_order(self, phone_last10: str) -> bool:
+        from app.models.order import Order
+
+        return (
+            self.db.query(Order)
+            .filter(Order.customer_phone.like(f"%{phone_last10}"))
+            .first()
+            is not None
+        )
+
+    def _used_count_for_phone(self, promo_id: int, phone_last10: str) -> int:
+        return (
+            self.db.query(PromoCodeUsage)
+            .filter_by(promo_code_id=promo_id, customer_phone=phone_last10)
+            .count()
+        )
 
     def validate_promocode(self, code: str, payload: PromoCodeValidateRequest) -> dict:
         pc = self.db.query(PromoCode).filter_by(code=code.strip().upper()).first()
@@ -141,16 +229,106 @@ class StorefrontService:
             return {"valid": False, "reason": "Invalid or inactive promo code", "code": code}
 
         now = datetime.utcnow()
+        phone = self._normalise_phone(payload.customer_phone)
+        is_returning = bool(phone) and self._has_previous_order(phone)
+
+        # --- Event windows ---
+        # For single/multiple-event promos the code is live only inside at
+        # least one selected campaign window.
+        if pc.category in ("single_event", "multiple_event"):
+            windows = [
+                e
+                for e in (pc.events or [])
+                if e.start_date <= now <= e.end_date
+            ]
+            if not windows:
+                return {
+                    "valid": False,
+                    "reason": "This offer is not active in any current event window",
+                    "code": pc.code,
+                }
+
         if pc.valid_from and now < pc.valid_from:
             return {"valid": False, "reason": "Promo code is not active yet", "code": pc.code}
         if pc.valid_until and now > pc.valid_until:
             return {"valid": False, "reason": "Promo code has expired", "code": pc.code}
         if pc.max_uses is not None and (pc.used_count or 0) >= pc.max_uses:
             return {"valid": False, "reason": "Promo code usage limit reached", "code": pc.code}
-        if pc.per_user_limit is not None and (payload.user_uses or 0) >= pc.per_user_limit:
-            return {"valid": False, "reason": "Per-user usage limit reached for this promo code", "code": pc.code}
-        if payload.order_value < (pc.min_order_value or 0):
-            return {"valid": False, "reason": f"Minimum order value of ₹{pc.min_order_value} required", "code": pc.code}
+
+        # --- Customer eligibility (first_order_only / customer_type) ---
+        # These need a phone; if none is supplied we cannot confirm, so the
+        # caller is told to supply one rather than being waved through.
+        needs_identity = pc.first_order_only or pc.customer_type in ("new", "returning")
+        if needs_identity and not phone:
+            return {
+                "valid": False,
+                "reason": "PHONE_REQUIRED",
+                "code": pc.code,
+                "requires_phone": True,
+            }
+
+        if pc.customer_type == "new" and is_returning:
+            return {
+                "valid": False,
+                "reason": "This offer is only for first-time customers",
+                "code": pc.code,
+            }
+        if pc.customer_type == "returning" and not is_returning:
+            return {
+                "valid": False,
+                "reason": "This offer is only for returning customers",
+                "code": pc.code,
+            }
+        if pc.first_order_only and is_returning:
+            return {
+                "valid": False,
+                "reason": "This promo code is only valid for first-time customers",
+                "code": pc.code,
+            }
+
+        # --- Per-user redemption limit, from real usage history ---
+        if pc.per_user_limit is not None and phone:
+            used_by_user = self._used_count_for_phone(pc.id, phone)
+            if used_by_user >= pc.per_user_limit:
+                return {
+                    "valid": False,
+                    "reason": "You have already used this promo code",
+                    "code": pc.code,
+                }
+
+        # --- Thresholds: interpreted per `discount_on` ---
+        # "quantity" => min/max count of units in cart
+        # "amount"   => min/max cart value in ₹
+        if pc.discount_on == "quantity":
+            qty = payload.item_count or 0
+            if pc.min_quantity is not None and qty < pc.min_quantity:
+                return {
+                    "valid": False,
+                    "reason": f"Add at least {pc.min_quantity} item(s) to use this code",
+                    "code": pc.code,
+                }
+            if pc.max_quantity is not None and qty > pc.max_quantity:
+                return {
+                    "valid": False,
+                    "reason": f"This code applies to up to {pc.max_quantity} item(s) per order",
+                    "code": pc.code,
+                }
+        else:
+            value = payload.order_value or 0
+            if value < (pc.min_order_value or 0):
+                return {
+                    "valid": False,
+                    "reason": f"Minimum order value of ₹{pc.min_order_value} required",
+                    "code": pc.code,
+                }
+            if pc.max_order_value is not None and value > pc.max_order_value:
+                return {
+                    "valid": False,
+                    "reason": f"This code applies to orders up to ₹{pc.max_order_value}",
+                    "code": pc.code,
+                }
+
+        # Legacy minimum_order_items still applies when explicitly set.
         if pc.minimum_order_items is not None and (payload.item_count or 0) < pc.minimum_order_items:
             return {"valid": False, "reason": f"Minimum {pc.minimum_order_items} item(s) required", "code": pc.code}
 
@@ -169,8 +347,15 @@ class StorefrontService:
             "code": pc.code,
             "discount_type": pc.discount_type,
             "discount_value": pc.discount_value,
+            "free_item_name": pc.free_item_name,
             "min_order_value": pc.min_order_value,
         }
+
+    def get_promocode_by_code(self, code: str) -> PromoCode | None:
+        return self.db.query(PromoCode).filter_by(code=code.strip().upper()).first()
+
+    def get_promocode_by_id(self, pc_id: int) -> PromoCode | None:
+        return self.db.query(PromoCode).filter_by(id=pc_id).first()
 
     def delete_promocode(self, pc_id: int) -> None:
         pc = self.db.query(PromoCode).filter_by(id=pc_id).first()

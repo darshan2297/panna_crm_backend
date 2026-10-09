@@ -436,8 +436,13 @@ class OrderService:
 
         for item_data in payload.items:
             item_total = round(item_data.unit_price * item_data.quantity, 2)
-            subtotal += item_total
-            summary_parts.append(f"{item_data.quantity}x {item_data.item_name} ({item_data.portion_size})")
+            # Complimentary promo gifts never contribute to the payable subtotal.
+            if not item_data.is_free:
+                subtotal += item_total
+            summary_parts.append(
+                f"{item_data.quantity}x {item_data.item_name} ({item_data.portion_size})"
+                + (" [FREE]" if item_data.is_free else "")
+            )
 
             db_items.append(
                 OrderItem(
@@ -446,8 +451,25 @@ class OrderService:
                     quantity=item_data.quantity,
                     unit_price=item_data.unit_price,
                     total_price=item_total,
+                    is_free=item_data.is_free,
                 )
             )
+
+        # Fallback: promo-level free item (used when the storefront sends only the coupon)
+        if payload.discount_type == "free_item" and payload.free_item_name:
+            already_added = any(i.is_free for i in db_items)
+            if not already_added:
+                db_items.append(
+                    OrderItem(
+                        item_name=payload.free_item_name,
+                        portion_size="Single",
+                        quantity=1,
+                        unit_price=0.0,
+                        total_price=0.0,
+                        is_free=True,
+                    )
+                )
+                summary_parts.append(f"1x {payload.free_item_name} (FREE)")
 
         subtotal = round(subtotal, 2)
         # Website prices are GST-inclusive. The storefront sends tax=0, so

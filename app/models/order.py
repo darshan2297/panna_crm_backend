@@ -1,6 +1,6 @@
 import enum
 
-from sqlalchemy import Column, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, Column, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import relationship
 
 from app.core.database import Base
@@ -74,5 +74,6 @@ class OrderItem(Base, TimestampMixin):
     quantity = Column(Integer, default=1, nullable=False)
     unit_price = Column(Float, default=0.0, nullable=False)
     total_price = Column(Float, default=0.0, nullable=False)
+    is_free = Column(Boolean, default=False, nullable=False)
 
     order = relationship("Order", back_populates="items")

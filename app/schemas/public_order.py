@@ -9,6 +9,7 @@ class WebsiteOrderItemInput(BaseModel):
     quantity: int = Field(1, ge=1, le=50, description="Quantity of items")
     unit_price: float = Field(..., ge=0.0, description="Unit price in INR")
     notes: str | None = Field(None, max_length=250, description="Customization notes like extra raita")
+    is_free: bool = Field(False, description="True when this line item is a complimentary promo gift")
 
 
 class WebsiteCustomerInput(BaseModel):
@@ -24,6 +25,8 @@ class WebsiteOrderCreateRequest(BaseModel):
     payment_method: str = Field("COD", description="Payment method: COD, ONLINE_UPI, CARD")
     delivery_fee: float = Field(0.0, ge=0.0)
     discount: float = Field(0.0, ge=0.0)
+    discount_type: str | None = Field(None, description="Promo discount type: fixed, percentage, free_item, free_delivery")
+    free_item_name: str | None = Field(None, description="Name of the complimentary free item from promo code")
     tax: float = Field(0.0, ge=0.0, description="Tax amount already included in the website order total")
     notes: str | None = Field(None, max_length=500, description="Special cooking or delivery instructions")
 

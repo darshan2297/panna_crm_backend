@@ -110,6 +110,19 @@ def validate_promocode(
     return APIResponse(success=True, message="Promo code validated", data=result)
 
 
+@router.get("/promocodes/{pc_id}", response_model=APIResponse[PromoCodeResponse])
+def get_promocode(
+    pc_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    service = StorefrontService(db)
+    promo = service.get_promocode_by_id(pc_id)
+    if promo is None:
+        raise HTTPException(status_code=404, detail="Promo code not found")
+    return APIResponse(success=True, message="Promo code retrieved", data=PromoCodeResponse.model_validate(promo))
+
+
 @router.patch("/promocodes/{pc_id}", response_model=APIResponse[PromoCodeResponse])
 def update_promocode(
     pc_id: int,
