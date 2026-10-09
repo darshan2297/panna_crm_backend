@@ -4,6 +4,8 @@ from sqlalchemy.orm import Session
 from app.dependencies.database import get_db
 from app.schemas.common import APIResponse
 from app.schemas.contact_inquiry import ContactInquiryCreate
+from app.schemas.storefront import PromoCodeValidateRequest, PromoRedemptionRequest
+from app.schemas.public_customer import PhoneExistsRequest
 from app.schemas.public_order import (
     PaymentWebhookRequest,
     PaymentWebhookResponse,
@@ -12,7 +14,9 @@ from app.schemas.public_order import (
     WebsiteOrderCreateResponse,
 )
 from app.services.contact_inquiry_service import ContactInquiryService
+from app.services.customer_service import CustomerService
 from app.services.order_service import OrderService
+from app.services.storefront_service import StorefrontService
 
 router = APIRouter(prefix="/public", tags=["Public Storefront Gateway"])
 
@@ -98,8 +102,6 @@ def get_shop_status(db: Session = Depends(get_db)):
 def get_public_config(db: Session = Depends(get_db)):
     """Public Endpoint: Website storefront display configuration (images, toggles, delivery)."""
     from app.schemas.storefront import StorefrontConfigResponse
-    from app.services.storefront_service import StorefrontService
-
     service = StorefrontService(db)
     cfg = service.get_config()
     return APIResponse(
@@ -113,8 +115,6 @@ def get_public_config(db: Session = Depends(get_db)):
 def get_public_payment_methods(db: Session = Depends(get_db)):
     """Public Endpoint: Enabled payment methods for the checkout page."""
     from app.schemas.storefront import PaymentMethodResponse
-    from app.services.storefront_service import StorefrontService
-
     service = StorefrontService(db)
     data = [PaymentMethodResponse.model_validate(pm) for pm in service.list_payment_methods() if pm.enabled]
     return APIResponse(success=True, message="Payment methods retrieved successfully", data=data)
@@ -122,20 +122,86 @@ def get_public_payment_methods(db: Session = Depends(get_db)):
 
 @router.get("/promocodes")
 def get_public_promocodes(db: Session = Depends(get_db)):
-    """Public Endpoint: Active promo codes for the website checkout."""
+    """Public Endpoint: Active, non-private promo codes for the website checkout."""
     from app.schemas.storefront import PromoCodeResponse
-    from app.services.storefront_service import StorefrontService
-
     service = StorefrontService(db)
-    data = [PromoCodeResponse.model_validate(pc) for pc in service.list_promocodes() if pc.active]
+    data = [
+        PromoCodeResponse.model_validate(pc)
+        for pc in service.list_promocodes()
+        if pc.active and not pc.is_private
+    ]
     return APIResponse(success=True, message="Promo codes retrieved successfully", data=data)
+
+
+@router.post("/customers/phone-exists")
+def check_customer_phone_exists(
+    payload: PhoneExistsRequest,
+    db: Session = Depends(get_db),
+):
+    """
+    Public Endpoint: Resolve a phone number to a sign-in identity.
+
+    Returns `exists` plus the customer's display `name` (nothing else — no
+    address, orders or spend). The storefront calls this when a guest submits a
+    number for an identity-gated promo, so the resulting session carries the real
+    name instead of a placeholder like "Returning Customer".
+
+    Security note: this is a phone -> name lookup on an unauthenticated route. It
+    requires the caller to already know the exact number (a 10-digit space that
+    cannot be enumerated), but it should move behind OTP verification before the
+    storefront is publicly reachable.
+    """
+    service = CustomerService(db)
+    exists, name = service.customer_identity_by_phone(payload.phone)
+    return APIResponse(
+        success=True,
+        message="Lookup complete",
+        data={"exists": exists, "name": name},
+    )
+
+
+@router.post("/promocodes/{code}/redeem")
+def redeem_public_promocode(
+    code: str,
+    payload: PromoRedemptionRequest,
+    db: Session = Depends(get_db),
+):
+    """
+    Public Endpoint: Record a promo redemption against the customer's phone.
+    Enforces `per_user_limit` from real history so a code can only be used
+    once per customer (or N times, as configured).
+    """
+    service = StorefrontService(db)
+    promo = service.get_promocode_by_code(code)
+    if promo is None or not promo.active:
+        raise HTTPException(status_code=404, detail="Invalid or inactive promo code")
+
+    usage = service.record_promocode_usage(promo.id, payload.customer_phone, payload.order_id)
+    return APIResponse(
+        success=True,
+        message="Promo redemption recorded",
+        data={"promo_code_id": usage.promo_code_id, "customer_phone": usage.customer_phone},
+    )
+
+
+@router.post("/promocodes/{code}/validate")
+def validate_public_promocode(
+    code: str,
+    payload: PromoCodeValidateRequest,
+    db: Session = Depends(get_db),
+):
+    """
+    Public Endpoint: Validate a promo code from the website checkout.
+    Includes first-order-only eligibility so returning customers are rejected.
+    """
+    service = StorefrontService(db)
+    result = service.validate_promocode(code, payload)
+    return APIResponse(success=True, message="Promo code validated", data=result)
 
 
 @router.get("/menu-data")
 def get_public_menu_data(db: Session = Depends(get_db)):
     """Public Endpoint: Full website menu (products, combos, extras) in storefront shape."""
-    from app.services.storefront_service import StorefrontService
-
     service = StorefrontService(db)
     return APIResponse(
         success=True,

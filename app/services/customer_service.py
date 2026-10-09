@@ -39,6 +39,37 @@ class CustomerService:
     def __init__(self, db: Session):
         self.db = db
 
+    def customer_identity_by_phone(self, phone: str) -> tuple[bool, str | None]:
+        """Resolve a phone number to (exists, display name).
+
+        Used by the storefront when a guest submits a number to unlock an
+        identity-gated promo: the session needs a real name so checkout is not
+        pre-filled with a placeholder like "Returning Customer".
+
+        Deliberately returns ONLY the name — no address, orders, spend or
+        contact history. Anyone holding a phone number can already act on it by
+        calling the restaurant, so the marginal disclosure is small, but this
+        must move behind OTP verification before the storefront goes public.
+        """
+        digits = "".join(ch for ch in phone if ch.isdigit())
+        if len(digits) < 10:
+            return False, None
+        last10 = digits[-10:]
+        row = (
+            self.db.query(Customer.id, Customer.name)
+            .filter(Customer.phone.like(f"%{last10}"))
+            .order_by(Customer.total_orders.desc(), Customer.id.asc())
+            .first()
+        )
+        if row is None:
+            return False, None
+        name = (row.name or "").strip()
+        return True, (name or None)
+
+    def customer_exists_by_phone(self, phone: str) -> bool:
+        """Existence check only — returns no customer PII."""
+        return self.customer_identity_by_phone(phone)[0]
+
     def get_summary(self) -> CustomerSummary:
         from sqlalchemy import case
 

@@ -34,9 +34,9 @@ app/
    DATABASE_URL="mysql+pymysql://panna_user:panna_secure_pass@localhost:3306/panna_crm"
    ```
 
-3. **Start the API Server**:
+3. **Start the API Server** (use `application` for Socket.IO support):
    ```bash
-   uvicorn app.main:app --reload --port 8000
+   uvicorn app.main:application --reload --port 8000
    ```
 
 4. **Default Credentials**:
