@@ -151,3 +151,5 @@ app.db
 *.db-journal
 
 rzp-test-key.csv
+
+.env
