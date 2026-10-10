@@ -1,9 +1,9 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
-from app.dependencies.auth import get_current_active_user, require_roles
+from app.dependencies.auth import require_permission
 from app.dependencies.database import get_db
-from app.models.user import User, UserRole
+from app.models.user import User
 from app.schemas.business_hours import (
     BusinessHolidayCreate,
     BusinessHolidayRead,
@@ -23,7 +23,7 @@ router = APIRouter(prefix="/business-hours", tags=["Business Hours & Holidays"])
 
 @router.get("", response_model=APIResponse[BusinessHoursRead])
 def get_business_hours(
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(require_permission("BUSINESS_HOURS", "VIEW")),
     db: Session = Depends(get_db),
 ):
     """Retrieve weekly operating schedule, holiday calendar and global config."""
@@ -34,7 +34,7 @@ def get_business_hours(
 @router.patch("/config", response_model=APIResponse[BusinessHoursConfigRead])
 def update_business_hours_config(
     payload: BusinessHoursConfigUpdate,
-    current_user: User = Depends(require_roles([UserRole.ADMIN.value, UserRole.MANAGER.value])),
+    current_user: User = Depends(require_permission("BUSINESS_HOURS", "UPDATE")),
     db: Session = Depends(get_db),
 ):
     """Enable/disable the automatic schedule and configure timezone/message."""
@@ -56,7 +56,7 @@ def update_business_hours_config(
 def update_business_hour_day(
     day_of_week: int,
     payload: BusinessHourDayUpdate,
-    current_user: User = Depends(require_roles([UserRole.ADMIN.value, UserRole.MANAGER.value])),
+    current_user: User = Depends(require_permission("BUSINESS_HOURS", "UPDATE")),
     db: Session = Depends(get_db),
 ):
     """Update a weekday's opening hours. day_of_week: 0=Monday .. 6=Sunday."""
@@ -76,7 +76,7 @@ def update_business_hour_day(
 
 @router.get("/holidays", response_model=APIResponse[list[BusinessHolidayRead]])
 def list_holidays(
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(require_permission("BUSINESS_HOURS", "VIEW")),
     db: Session = Depends(get_db),
 ):
     service = BusinessHoursService(db)
@@ -86,7 +86,7 @@ def list_holidays(
 @router.post("/holidays", response_model=APIResponse[BusinessHolidayRead])
 def create_holiday(
     payload: BusinessHolidayCreate,
-    current_user: User = Depends(require_roles([UserRole.ADMIN.value, UserRole.MANAGER.value])),
+    current_user: User = Depends(require_permission("BUSINESS_HOURS", "UPDATE")),
     db: Session = Depends(get_db),
 ):
     """Add or replace a holiday / date-specific hours override."""
@@ -108,7 +108,7 @@ def create_holiday(
 def update_holiday(
     holiday_id: int,
     payload: BusinessHolidayUpdate,
-    current_user: User = Depends(require_roles([UserRole.ADMIN.value, UserRole.MANAGER.value])),
+    current_user: User = Depends(require_permission("BUSINESS_HOURS", "UPDATE")),
     db: Session = Depends(get_db),
 ):
     service = BusinessHoursService(db)
@@ -128,7 +128,7 @@ def update_holiday(
 @router.delete("/holidays/{holiday_id}", response_model=APIResponse[dict])
 def delete_holiday(
     holiday_id: int,
-    current_user: User = Depends(require_roles([UserRole.ADMIN.value, UserRole.MANAGER.value])),
+    current_user: User = Depends(require_permission("BUSINESS_HOURS", "UPDATE")),
     db: Session = Depends(get_db),
 ):
     service = BusinessHoursService(db)

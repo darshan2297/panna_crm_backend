@@ -3,9 +3,9 @@
 from fastapi import APIRouter, Depends, status
 from sqlalchemy.orm import Session
 
-from app.dependencies.auth import get_current_active_user, require_roles
+from app.dependencies.auth import require_permission
 from app.dependencies.database import get_db
-from app.models.user import User, UserRole
+from app.models.user import User
 from app.schemas.common import APIResponse
 from app.schemas.delivery_area import (
     DeliveryAreaCreate,
@@ -20,7 +20,7 @@ router = APIRouter(prefix="/delivery-areas", tags=["Delivery Areas"])
 @router.get("", response_model=APIResponse[list[DeliveryAreaResponse]])
 def list_delivery_areas(
     active_only: bool = True,
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(require_permission("DELIVERY_AREAS", "VIEW")),
     db: Session = Depends(get_db),
 ):
     """List all delivery areas (active only by default)."""
@@ -36,7 +36,7 @@ def list_delivery_areas(
 @router.post("", response_model=APIResponse[DeliveryAreaResponse], status_code=status.HTTP_201_CREATED)
 def create_delivery_area(
     payload: DeliveryAreaCreate,
-    current_user: User = Depends(require_roles([UserRole.ADMIN, UserRole.MANAGER])),
+    current_user: User = Depends(require_permission("DELIVERY_AREAS", "CREATE")),
     db: Session = Depends(get_db),
 ):
     """Create a new delivery area (Admin/Manager only)."""
@@ -53,7 +53,7 @@ def create_delivery_area(
 def update_delivery_area(
     area_id: int,
     payload: DeliveryAreaUpdate,
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(require_permission("DELIVERY_AREAS", "UPDATE")),
     db: Session = Depends(get_db),
 ):
     """Update a delivery area."""
@@ -69,7 +69,7 @@ def update_delivery_area(
 @router.delete("/{area_id}", response_model=APIResponse[None])
 def delete_delivery_area(
     area_id: int,
-    current_user: User = Depends(require_roles([UserRole.ADMIN])),
+    current_user: User = Depends(require_permission("DELIVERY_AREAS", "DELETE")),
     db: Session = Depends(get_db),
 ):
     """Delete a delivery area (Admin only)."""

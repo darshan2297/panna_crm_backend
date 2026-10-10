@@ -1,9 +1,9 @@
 from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.orm import Session
 
-from app.dependencies.auth import get_current_active_user, require_roles
+from app.dependencies.auth import require_permission
 from app.dependencies.database import get_db
-from app.models.user import User, UserRole
+from app.models.user import User
 from app.schemas.common import APIResponse, PaginatedResponse
 from app.schemas.inventory import (
     InventoryItemCreate,
@@ -22,7 +22,7 @@ router = APIRouter(prefix="/inventory", tags=["Inventory Management"])
 @router.get("/summary", response_model=APIResponse[InventorySummaryResponse])
 def get_inventory_summary(
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(require_permission("INVENTORY", "VIEW")),
 ):
     """Retrieve operational inventory KPI metrics and category valuations."""
     service = InventoryService(db)
@@ -44,7 +44,7 @@ def list_inventory_items(
     page: int = Query(1, ge=1, description="Page number"),
     page_size: int = Query(50, ge=1, le=200, description="Items per page"),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(require_permission("INVENTORY", "VIEW")),
 ):
     """List inventory items with search, category, and threshold filtering."""
     service = InventoryService(db)
@@ -73,7 +73,7 @@ def list_inventory_items(
 def create_inventory_item(
     payload: InventoryItemCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles([UserRole.ADMIN.value, UserRole.MANAGER.value])),
+    current_user: User = Depends(require_permission("INVENTORY", "CREATE")),
 ):
     """Create a new ingredient or inventory item (Manager or Admin)."""
     service = InventoryService(db)
@@ -89,7 +89,7 @@ def create_inventory_item(
 def get_inventory_item(
     item_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(require_permission("INVENTORY", "VIEW")),
 ):
     """Get single item details with its recent stock movement transactions."""
     service = InventoryService(db)
@@ -106,7 +106,7 @@ def update_inventory_item(
     item_id: int,
     payload: InventoryItemUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles([UserRole.ADMIN.value, UserRole.MANAGER.value])),
+    current_user: User = Depends(require_permission("INVENTORY", "UPDATE")),
 ):
     """Update item metadata, safety thresholds, or supplier info (Manager or Admin)."""
     service = InventoryService(db)
@@ -122,7 +122,7 @@ def update_inventory_item(
 def delete_inventory_item(
     item_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles([UserRole.ADMIN.value])),
+    current_user: User = Depends(require_permission("INVENTORY", "DELETE")),
 ):
     """Deactivate / soft-delete inventory item (Admin only)."""
     service = InventoryService(db)
@@ -139,7 +139,7 @@ def adjust_inventory_stock(
     item_id: int,
     payload: InventoryTransactionCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(require_permission("INVENTORY", "CREATE")),
 ):
     """Record Stock-In, Stock-Out, Wastage, or Physical Audit count. Accessible to Staff, Manager, Admin."""
     service = InventoryService(db)
@@ -160,7 +160,7 @@ def list_inventory_transactions(
     page: int = Query(1, ge=1, description="Page number"),
     page_size: int = Query(50, ge=1, le=200, description="Transactions per page"),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(require_permission("INVENTORY", "VIEW")),
 ):
     """List full chronological inventory audit trail across all stock movements."""
     service = InventoryService(db)

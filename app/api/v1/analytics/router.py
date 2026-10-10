@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, Query, Response
 from sqlalchemy.orm import Session
 
-from app.dependencies.auth import get_current_active_user
+from app.dependencies.auth import require_permission
 from app.dependencies.database import get_db
 from app.models.user import User
 from app.schemas.analytics import (
@@ -22,7 +22,7 @@ router = APIRouter(prefix="/analytics", tags=["Analytics & Reports"])
 @router.get("/sales-trend", response_model=APIResponse[SalesTrendResponse])
 def get_sales_trend(
     days: int = Query(7, ge=1, le=365, description="Number of days to analyze"),
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(require_permission("ANALYTICS", "VIEW")),
     db: Session = Depends(get_db),
 ):
     service = AnalyticsService(db)
@@ -35,7 +35,7 @@ def get_top_items(
     days: int = Query(30, ge=1, le=365),
     limit: int = Query(10, ge=1, le=50),
     sort_by: str = Query("revenue", pattern="^(revenue|quantity)$"),
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(require_permission("ANALYTICS", "VIEW")),
     db: Session = Depends(get_db),
 ):
     service = AnalyticsService(db)
@@ -46,7 +46,7 @@ def get_top_items(
 @router.get("/platform-breakdown", response_model=APIResponse[PlatformBreakdownResponse])
 def get_platform_breakdown(
     days: int = Query(30, ge=1, le=365),
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(require_permission("ANALYTICS", "VIEW")),
     db: Session = Depends(get_db),
 ):
     service = AnalyticsService(db)
@@ -57,7 +57,7 @@ def get_platform_breakdown(
 @router.get("/order-velocity", response_model=APIResponse[OrderVelocityResponse])
 def get_order_velocity(
     days: int = Query(30, ge=1, le=365),
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(require_permission("ANALYTICS", "VIEW")),
     db: Session = Depends(get_db),
 ):
     service = AnalyticsService(db)
@@ -67,7 +67,7 @@ def get_order_velocity(
 
 @router.get("/customer-segments", response_model=APIResponse[CustomerSegmentsResponse])
 def get_customer_segments(
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(require_permission("ANALYTICS", "VIEW")),
     db: Session = Depends(get_db),
 ):
     service = AnalyticsService(db)
@@ -77,7 +77,7 @@ def get_customer_segments(
 
 @router.get("/costing/dishes", response_model=APIResponse[DishCostingResponse])
 def get_dish_costing(
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(require_permission("ANALYTICS", "VIEW")),
     db: Session = Depends(get_db),
 ):
     service = AnalyticsService(db)
@@ -88,7 +88,7 @@ def get_dish_costing(
 @router.get("/costing/summary", response_model=APIResponse[PLSummaryResponse])
 def get_pl_summary(
     days: int = Query(30, ge=1, le=365),
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(require_permission("ANALYTICS", "VIEW")),
     db: Session = Depends(get_db),
 ):
     service = AnalyticsService(db)
@@ -100,7 +100,7 @@ def get_pl_summary(
 def export_analytics_csv(
     dataset: str = Query("sales", pattern="^(sales|top_items|costing|platforms)$"),
     days: int = Query(30, ge=1, le=365),
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(require_permission("ANALYTICS", "VIEW")),
     db: Session = Depends(get_db),
 ):
     service = AnalyticsService(db)

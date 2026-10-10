@@ -1,9 +1,9 @@
 from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.orm import Session
 
-from app.dependencies.auth import get_current_active_user, require_roles
+from app.dependencies.auth import require_permission
 from app.dependencies.database import get_db
-from app.models.user import User, UserRole
+from app.models.user import User
 from app.schemas.common import APIResponse, PaginatedResponse
 from app.schemas.packaging import (
     PackagingConsumptionRuleCreate,
@@ -27,7 +27,7 @@ router = APIRouter(prefix="/packaging", tags=["Packaging Management"])
 @router.get("/summary", response_model=APIResponse[PackagingSummaryResponse])
 def get_packaging_summary(
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(require_permission("PACKAGING", "VIEW")),
 ):
     """Retrieve operational packaging KPI metrics, valuations, and daily consumption burn rate."""
     service = PackagingService(db)
@@ -50,7 +50,7 @@ def list_packaging_items(
     page: int = Query(1, ge=1, description="Page number"),
     page_size: int = Query(50, ge=1, le=200, description="Items per page"),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(require_permission("PACKAGING", "VIEW")),
 ):
     """List packaging items with search, material, category, and threshold filtering."""
     service = PackagingService(db)
@@ -81,7 +81,7 @@ def list_packaging_items(
 def create_packaging_item(
     payload: PackagingItemCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles([UserRole.ADMIN.value, UserRole.MANAGER.value])),
+    current_user: User = Depends(require_permission("PACKAGING", "CREATE")),
 ):
     """Create a new packaging item with automatic SKU generation."""
     service = PackagingService(db)
@@ -97,7 +97,7 @@ def create_packaging_item(
 def get_packaging_item(
     item_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(require_permission("PACKAGING", "VIEW")),
 ):
     """Retrieve detailed packaging item information with recent movement history."""
     service = PackagingService(db)
@@ -114,7 +114,7 @@ def update_packaging_item(
     item_id: int,
     payload: PackagingItemUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles([UserRole.ADMIN.value, UserRole.MANAGER.value])),
+    current_user: User = Depends(require_permission("PACKAGING", "UPDATE")),
 ):
     """Update packaging item metadata, costs, safety thresholds, or supplier."""
     service = PackagingService(db)
@@ -130,7 +130,7 @@ def update_packaging_item(
 def delete_packaging_item(
     item_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles([UserRole.ADMIN.value])),
+    current_user: User = Depends(require_permission("PACKAGING", "DELETE")),
 ):
     """Soft-delete a packaging item."""
     service = PackagingService(db)
@@ -147,7 +147,7 @@ def adjust_packaging_stock(
     item_id: int,
     payload: PackagingTransactionCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(require_permission("PACKAGING", "CREATE")),
 ):
     """Record packaging stock movement (STOCK_IN, STOCK_OUT, WASTAGE, AUDIT_CORRECTION)."""
     service = PackagingService(db)
@@ -166,7 +166,7 @@ def list_packaging_transactions(
     page: int = Query(1, ge=1, description="Page number"),
     page_size: int = Query(25, ge=1, le=100, description="Items per page"),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(require_permission("PACKAGING", "VIEW")),
 ):
     """Chronological audit trail of all packaging movements, purchases, and wastage."""
     service = PackagingService(db)
@@ -194,7 +194,7 @@ def list_packaging_transactions(
 @router.get("/rules", response_model=APIResponse[list[PackagingConsumptionRuleResponse]])
 def list_packaging_rules(
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(require_permission("PACKAGING", "VIEW")),
 ):
     """Retrieve auto-consumption packaging rules linking dish categories/portions to packaging."""
     service = PackagingService(db)
@@ -212,7 +212,7 @@ def list_packaging_rules(
 def create_packaging_rule(
     payload: PackagingConsumptionRuleCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles([UserRole.ADMIN.value, UserRole.MANAGER.value])),
+    current_user: User = Depends(require_permission("PACKAGING", "CREATE")),
 ):
     """Create a new auto-consumption mapping rule for kitchen orders."""
     service = PackagingService(db)
@@ -228,7 +228,7 @@ def create_packaging_rule(
 def delete_packaging_rule(
     rule_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles([UserRole.ADMIN.value, UserRole.MANAGER.value])),
+    current_user: User = Depends(require_permission("PACKAGING", "DELETE")),
 ):
     """Deactivate a packaging consumption rule."""
     service = PackagingService(db)
@@ -244,7 +244,7 @@ def delete_packaging_rule(
 def simulate_order_consumption(
     payload: PackagingOrderSimulationRequest,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(require_permission("PACKAGING", "CREATE")),
 ):
     """Calculate packaging items consumed and total packaging cost in ₹ for an order payload."""
     service = PackagingService(db)

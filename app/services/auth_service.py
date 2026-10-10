@@ -70,6 +70,13 @@ class AuthService:
 
     def init_default_users(self) -> None:
         """Seed initial Admin, Manager, and Staff accounts for immediate testing."""
+        # Roles are seeded by RoleService.seed_default_roles() during startup,
+        # which runs before this. Resolve by name so each account is linked to
+        # its role row rather than leaving role_id null.
+        from app.models.role import Role
+
+        roles_by_name = {r.name: r for r in self.db.query(Role).all()}
+
         default_accounts = [
             {
                 "username": "admin",
@@ -97,7 +104,11 @@ class AuthService:
             },
         ]
 
+        from app.services.permission_catalogue import LEGACY_ROLE_TO_ROLE_NAME
+
         for acc in default_accounts:
+            role_name = LEGACY_ROLE_TO_ROLE_NAME.get(acc["role"], "Staff")
+            role = roles_by_name.get(role_name)
             existing = self.user_repo.get_by_username(acc["username"])
             if not existing:
                 u = User(
@@ -107,10 +118,15 @@ class AuthService:
                     phone=acc["phone"],
                     hashed_password=get_password_hash(acc["password"]),
                     role=acc["role"],
+                    role_id=role.id if role else None,
                     is_active=True,
                 )
                 self.user_repo.create(u)
                 logger.info(f"Initialized default user: {acc['username']} ({acc['role']})")
+            elif existing.role_id is None and role:
+                # Pre-RBAC account: link it to its role so it gets real grants.
+                existing.role_id = role.id
+                self.db.commit()
 
     # Retain backward-compatible method name for lifespan
     def init_default_admin(self) -> None:

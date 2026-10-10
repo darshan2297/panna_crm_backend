@@ -48,3 +48,30 @@ def require_roles(allowed_roles: list[Any]):
         return current_user
 
     return role_checker
+
+
+def require_permission(module: str, action: str):
+    """Enforce a module/action grant on the current user's role.
+
+    Usage:
+        @router.post("/items")
+        def create(..., _: User = Depends(require_permission("INVENTORY", "CREATE")))
+
+    Kept as a factory so the grant is declared next to the route it protects,
+    which is where a reviewer will look for it.
+    """
+    from app.models.role import Module, PermissionAction
+
+    module_value = module.value if hasattr(module, "value") else str(module)
+    action_value = action.value if hasattr(action, "value") else str(action)
+    assert module_value in {m.value for m in Module}, f"Unknown module '{module_value}'"
+    assert action_value in {a.value for a in PermissionAction}, f"Unknown action '{action_value}'"
+
+    def permission_checker(current_user: User = Depends(get_current_active_user)) -> User:
+        if not current_user.has_permission(module_value, action_value):
+            raise ForbiddenException(
+                message=f"You do not have '{action_value}' permission on '{module_value}'"
+            )
+        return current_user
+
+    return permission_checker

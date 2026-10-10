@@ -3,9 +3,9 @@ from typing import Any
 from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.orm import Session
 
-from app.dependencies.auth import get_current_active_user, require_roles
+from app.dependencies.auth import require_permission
 from app.dependencies.database import get_db
-from app.models.user import User, UserRole
+from app.models.user import User
 from app.schemas.common import APIResponse
 from app.schemas.integrations import (
     IntegrationConfigRead,
@@ -22,7 +22,7 @@ router = APIRouter(prefix="/integrations", tags=["Zomato & Swiggy Integrations"]
 
 @router.get("/status", response_model=APIResponse[IntegrationHealthSummary])
 def get_integration_status(
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(require_permission("INTEGRATIONS", "VIEW")),
     db: Session = Depends(get_db),
 ):
     service = IntegrationService(db)
@@ -34,7 +34,7 @@ def get_integration_status(
 def update_integration_config(
     platform: str,
     payload: IntegrationConfigUpdate,
-    current_user: User = Depends(require_roles([UserRole.ADMIN.value, UserRole.MANAGER.value])),
+    current_user: User = Depends(require_permission("INTEGRATIONS", "UPDATE")),
     db: Session = Depends(get_db),
 ):
     service = IntegrationService(db)
@@ -54,7 +54,7 @@ def update_integration_config(
 @router.post("/sync/{platform}", response_model=APIResponse[dict[str, Any]])
 def sync_platform(
     platform: str,
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(require_permission("INTEGRATIONS", "UPDATE")),
     db: Session = Depends(get_db),
 ):
     service = IntegrationService(db)
@@ -96,7 +96,7 @@ async def swiggy_webhook(
 @router.post("/simulate", response_model=APIResponse[dict[str, Any]])
 def simulate_webhook_order(
     payload: WebhookSimulateRequest,
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(require_permission("INTEGRATIONS", "UPDATE")),
     db: Session = Depends(get_db),
 ):
     service = IntegrationService(db)
@@ -116,7 +116,7 @@ def simulate_webhook_order(
 @router.get("/logs", response_model=APIResponse[list[IntegrationLogRead]])
 def get_integration_logs(
     limit: int = Query(50, ge=1, le=100),
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(require_permission("INTEGRATIONS", "VIEW")),
     db: Session = Depends(get_db),
 ):
     service = IntegrationService(db)

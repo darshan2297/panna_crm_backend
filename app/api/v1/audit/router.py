@@ -1,9 +1,9 @@
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
-from app.dependencies.auth import require_roles
+from app.dependencies.auth import require_permission
 from app.dependencies.database import get_db
-from app.models.user import User, UserRole
+from app.models.user import User
 from app.schemas.audit import AuditLogRead, AuditStats
 from app.schemas.common import APIResponse, PaginatedResponse
 from app.services.audit_service import AuditService
@@ -24,7 +24,7 @@ def list_audit_logs(
     ),
     search: str | None = Query(None, description="Free text search in details or entity ID"),
     user_email: str | None = Query(None),
-    current_user: User = Depends(require_roles([UserRole.ADMIN.value, UserRole.MANAGER.value])),
+    current_user: User = Depends(require_permission("ROLES", "VIEW")),
     db: Session = Depends(get_db),
 ):
     service = AuditService(db)
@@ -49,7 +49,7 @@ def list_audit_logs(
 
 @router.get("/stats", response_model=APIResponse[AuditStats])
 def get_audit_stats(
-    current_user: User = Depends(require_roles([UserRole.ADMIN.value, UserRole.MANAGER.value])),
+    current_user: User = Depends(require_permission("ROLES", "VIEW")),
     db: Session = Depends(get_db),
 ):
     service = AuditService(db)

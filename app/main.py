@@ -70,6 +70,11 @@ async def lifespan(app: FastAPI):
     # Initialize default admin & staff users, and seed initial operational data
     db = SessionLocal()
     try:
+        # RBAC must exist before users, so role_id can be backfilled on creation.
+        from app.services.role_service import RoleService
+
+        RoleService(db).seed_default_roles()
+
         auth_service = AuthService(db)
         auth_service.init_default_users()
         seed_dashboard_data(db)

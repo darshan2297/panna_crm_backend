@@ -3,7 +3,7 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.orm import Session
 
-from app.dependencies.auth import get_current_active_user
+from app.dependencies.auth import require_permission
 from app.dependencies.database import get_db
 from app.models.user import User
 from app.schemas.common import APIResponse, PaginatedResponse
@@ -30,7 +30,7 @@ def list_orders(
     search: str | None = Query(None, description="Search by order ID, customer name, or phone"),
     date_from: datetime | None = Query(None, description="Filter from timestamp"),
     date_to: datetime | None = Query(None, description="Filter to timestamp"),
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(require_permission("ORDERS", "VIEW")),
     db: Session = Depends(get_db),
 ):
     """List orders with filtering, search, and pagination."""
@@ -59,7 +59,7 @@ def get_order_status_summary(
     date_from: datetime | None = Query(None, description="Filter summary from timestamp"),
     date_to: datetime | None = Query(None, description="Filter summary to timestamp"),
     platform: str | None = Query(None, description="Filter summary by platform (WEBSITE, ZOMATO, SWIGGY)"),
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(require_permission("ORDERS", "VIEW")),
     db: Session = Depends(get_db),
 ):
     """Get real-time operational status summary counts for quick UI badges and filters."""
@@ -79,7 +79,7 @@ def get_order_status_summary(
 @router.get("/{order_id}", response_model=APIResponse[OrderDetailResponse])
 def get_order_details(
     order_id: int,
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(require_permission("ORDERS", "VIEW")),
     db: Session = Depends(get_db),
 ):
     """Retrieve full details for an order including items, customer, and status timeline."""
@@ -95,7 +95,7 @@ def get_order_details(
 @router.post("", response_model=APIResponse[OrderDetailResponse], status_code=status.HTTP_201_CREATED)
 def create_order(
     payload: OrderCreate,
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(require_permission("ORDERS", "CREATE")),
     db: Session = Depends(get_db),
 ):
     """Create a new order manually or from direct counter/phone inquiry."""
@@ -112,7 +112,7 @@ def create_order(
 def update_order_status(
     order_id: int,
     payload: OrderUpdateStatus,
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(require_permission("ORDERS", "UPDATE")),
     db: Session = Depends(get_db),
 ):
     """Update order status through workflow progression (e.g. NEW -> CONFIRMED -> PREPARING -> READY -> OUT_FOR_DELIVERY -> DELIVERED)."""
@@ -134,7 +134,7 @@ def update_order_status(
 def cancel_order(
     order_id: int,
     payload: OrderCancelRequest,
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(require_permission("ORDERS", "CREATE")),
     db: Session = Depends(get_db),
 ):
     """Cancel an active order with reason log."""

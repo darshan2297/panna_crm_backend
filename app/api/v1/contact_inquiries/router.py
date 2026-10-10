@@ -3,9 +3,9 @@
 from fastapi import APIRouter, Depends, status
 from sqlalchemy.orm import Session
 
-from app.dependencies.auth import get_current_active_user, require_roles
+from app.dependencies.auth import require_permission
 from app.dependencies.database import get_db
-from app.models.user import User, UserRole
+from app.models.user import User
 from app.schemas.common import APIResponse
 from app.schemas.contact_inquiry import ContactInquiryResponse, ContactInquiryUpdate
 from app.services.contact_inquiry_service import ContactInquiryService
@@ -17,7 +17,7 @@ router = APIRouter(prefix="/contact-inquiries", tags=["Contact Inquiries"])
 def list_inquiries(
     inquiry_type: str | None = None,
     unresolved_only: bool = False,
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(require_permission("ENQUIRIES", "VIEW")),
     db: Session = Depends(get_db),
 ):
     """List all website contact / bulk-order enquiries."""
@@ -34,7 +34,7 @@ def list_inquiries(
 def update_inquiry(
     inquiry_id: int,
     payload: ContactInquiryUpdate,
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(require_permission("ENQUIRIES", "UPDATE")),
     db: Session = Depends(get_db),
 ):
     """Mark an enquiry as read / resolved."""
@@ -50,7 +50,7 @@ def update_inquiry(
 @router.delete("/{inquiry_id}", response_model=APIResponse[None])
 def delete_inquiry(
     inquiry_id: int,
-    current_user: User = Depends(require_roles([UserRole.ADMIN])),
+    current_user: User = Depends(require_permission("ENQUIRIES", "DELETE")),
     db: Session = Depends(get_db),
 ):
     """Delete an enquiry (Admin only)."""

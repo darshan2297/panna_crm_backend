@@ -4,9 +4,9 @@ import uuid
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from sqlalchemy.orm import Session
 
-from app.dependencies.auth import get_current_active_user, require_roles
+from app.dependencies.auth import require_permission
 from app.dependencies.database import get_db
-from app.models.user import User, UserRole
+from app.models.user import User
 from app.schemas.common import APIResponse
 from app.schemas.storefront import (
     PaymentMethodCreate,
@@ -29,7 +29,7 @@ MAX_FILE_SIZE = 10 * 1024 * 1024
 
 
 @router.get("/config", response_model=APIResponse[StorefrontConfigResponse])
-def get_storefront_config(db: Session = Depends(get_db), current_user: User = Depends(get_current_active_user)):
+def get_storefront_config(db: Session = Depends(get_db), current_user: User = Depends(require_permission("WEBSITE_CONFIG", "VIEW"))):
     service = StorefrontService(db)
     return APIResponse(success=True, message="Storefront config retrieved", data=service.get_config())
 
@@ -38,7 +38,7 @@ def get_storefront_config(db: Session = Depends(get_db), current_user: User = De
 def update_storefront_config(
     payload: StorefrontConfigUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles([UserRole.ADMIN, UserRole.MANAGER])),
+    current_user: User = Depends(require_permission("WEBSITE_CONFIG", "UPDATE")),
 ):
     service = StorefrontService(db)
     cfg = service.update_config(payload)
@@ -46,7 +46,7 @@ def update_storefront_config(
 
 
 @router.get("/payment-methods", response_model=APIResponse[list[PaymentMethodResponse]])
-def list_payment_methods(db: Session = Depends(get_db), current_user: User = Depends(get_current_active_user)):
+def list_payment_methods(db: Session = Depends(get_db), current_user: User = Depends(require_permission("WEBSITE_CONFIG", "VIEW"))):
     service = StorefrontService(db)
     return APIResponse(success=True, message="Payment methods retrieved", data=service.list_payment_methods())
 
@@ -55,7 +55,7 @@ def list_payment_methods(db: Session = Depends(get_db), current_user: User = Dep
 def create_payment_method(
     payload: PaymentMethodCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles([UserRole.ADMIN, UserRole.MANAGER])),
+    current_user: User = Depends(require_permission("WEBSITE_CONFIG", "UPDATE")),
 ):
     service = StorefrontService(db)
     return APIResponse(success=True, message="Payment method created", data=service.create_payment_method(payload))
@@ -66,7 +66,7 @@ def update_payment_method(
     pm_id: int,
     payload: PaymentMethodUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles([UserRole.ADMIN, UserRole.MANAGER])),
+    current_user: User = Depends(require_permission("WEBSITE_CONFIG", "UPDATE")),
 ):
     service = StorefrontService(db)
     return APIResponse(success=True, message="Payment method updated", data=service.update_payment_method(pm_id, payload))
@@ -76,7 +76,7 @@ def update_payment_method(
 def delete_payment_method(
     pm_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles([UserRole.ADMIN, UserRole.MANAGER])),
+    current_user: User = Depends(require_permission("WEBSITE_CONFIG", "UPDATE")),
 ):
     service = StorefrontService(db)
     service.delete_payment_method(pm_id)
@@ -84,7 +84,7 @@ def delete_payment_method(
 
 
 @router.get("/promocodes", response_model=APIResponse[list[PromoCodeResponse]])
-def list_promocodes(db: Session = Depends(get_db), current_user: User = Depends(get_current_active_user)):
+def list_promocodes(db: Session = Depends(get_db), current_user: User = Depends(require_permission("PROMO_CODES", "VIEW"))):
     service = StorefrontService(db)
     return APIResponse(success=True, message="Promo codes retrieved", data=service.list_promocodes())
 
@@ -93,7 +93,7 @@ def list_promocodes(db: Session = Depends(get_db), current_user: User = Depends(
 def create_promocode(
     payload: PromoCodeCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles([UserRole.ADMIN, UserRole.MANAGER])),
+    current_user: User = Depends(require_permission("PROMO_CODES", "CREATE")),
 ):
     service = StorefrontService(db)
     return APIResponse(success=True, message="Promo code created", data=service.create_promocode(payload))
@@ -104,6 +104,7 @@ def validate_promocode(
     code: str,
     payload: PromoCodeValidateRequest,
     db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission("PROMO_CODES", "VIEW")),
 ):
     service = StorefrontService(db)
     result = service.validate_promocode(code, payload)
@@ -114,7 +115,7 @@ def validate_promocode(
 def get_promocode(
     pc_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(require_permission("PROMO_CODES", "VIEW")),
 ):
     service = StorefrontService(db)
     promo = service.get_promocode_by_id(pc_id)
@@ -128,7 +129,7 @@ def update_promocode(
     pc_id: int,
     payload: PromoCodeUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles([UserRole.ADMIN, UserRole.MANAGER])),
+    current_user: User = Depends(require_permission("PROMO_CODES", "UPDATE")),
 ):
     service = StorefrontService(db)
     return APIResponse(success=True, message="Promo code updated", data=service.update_promocode(pc_id, payload))
@@ -138,7 +139,7 @@ def update_promocode(
 def delete_promocode(
     pc_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles([UserRole.ADMIN, UserRole.MANAGER])),
+    current_user: User = Depends(require_permission("PROMO_CODES", "DELETE")),
 ):
     service = StorefrontService(db)
     service.delete_promocode(pc_id)
@@ -148,7 +149,7 @@ def delete_promocode(
 @router.post("/upload", response_model=APIResponse[dict])
 async def upload_image(
     file: UploadFile = File(...),
-    current_user: User = Depends(require_roles([UserRole.ADMIN, UserRole.MANAGER])),
+    current_user: User = Depends(require_permission("WEBSITE_CONFIG", "UPDATE")),
 ):
     ext = os.path.splitext(file.filename or "")[1].lower()
     if ext not in ALLOWED_EXTENSIONS:

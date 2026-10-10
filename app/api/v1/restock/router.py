@@ -3,7 +3,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import NotFoundException
-from app.dependencies.auth import get_current_active_user
+from app.dependencies.auth import require_permission
 from app.dependencies.database import get_db
 from app.models.user import User
 from app.schemas.common import APIResponse, PaginatedResponse
@@ -27,7 +27,7 @@ class StatusUpdateInput(BaseModel):
 def get_restock_suggestions(
     target_type: str | None = Query(None, description="INVENTORY, PACKAGING, or None for all"),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(require_permission("RESTOCK", "VIEW")),
 ):
     """Retrieve all ingredients and packaging items needing replenishment, ranked by deficit."""
     items = RestockService.get_deficit_suggestions(db=db, target_type=target_type)
@@ -41,7 +41,7 @@ def get_restock_suggestions(
 @router.get("/suppliers", response_model=APIResponse[list[str]])
 def get_distinct_suppliers(
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(require_permission("RESTOCK", "VIEW")),
 ):
     """Distinct supplier names across inventory_items and packaging_items."""
     suppliers = RestockService.get_distinct_suppliers(db=db)
@@ -55,7 +55,7 @@ def get_distinct_suppliers(
 @router.get("/summary", response_model=APIResponse[RestockSummary])
 def get_restock_summary(
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(require_permission("RESTOCK", "VIEW")),
 ):
     """Retrieve overall restock KPI overview and investment requirement."""
     summary = RestockService.get_restock_summary(db=db)
@@ -72,7 +72,7 @@ def list_restock_orders(
     page: int = Query(1, ge=1, description="Page number"),
     page_size: int = Query(10, ge=1, le=100, description="Items per page"),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(require_permission("RESTOCK", "VIEW")),
 ):
     """List purchase orders with pagination and status filter."""
     total, items = RestockService.list_orders(
@@ -100,7 +100,7 @@ def list_restock_orders(
 def create_restock_order(
     payload: RestockOrderCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(require_permission("RESTOCK", "CREATE")),
 ):
     """Create a new restock purchase order."""
     user_name = current_user.full_name or current_user.username or "Kitchen Manager"
@@ -120,7 +120,7 @@ def create_restock_order(
 def get_restock_order_details(
     id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(require_permission("RESTOCK", "VIEW")),
 ):
     """Retrieve detailed purchase order information with items."""
     order = RestockService.get_order_details(db=db, po_id=id)
@@ -138,7 +138,7 @@ def update_restock_order_status(
     id: int,
     payload: StatusUpdateInput,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(require_permission("RESTOCK", "UPDATE")),
 ):
     """Update PO status (e.g. mark ORDERED or CANCELLED)."""
     order = RestockService.update_order_status(db=db, po_id=id, new_status=payload.status)
@@ -155,7 +155,7 @@ def update_restock_order_status(
 def receive_restock_goods(
     id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(require_permission("RESTOCK", "CREATE")),
 ):
     """
     1-Click Goods Receipt:

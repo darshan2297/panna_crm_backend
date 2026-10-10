@@ -16,6 +16,8 @@ class UserBase(BaseModel):
 
 class UserCreate(UserBase):
     password: str
+    # RBAC role to assign. Takes precedence over the legacy `role` field.
+    role_id: int | None = None
 
 
 class UserUpdate(BaseModel):
@@ -23,12 +25,14 @@ class UserUpdate(BaseModel):
     full_name: str | None = None
     phone: str | None = None
     role: UserRole | None = None
+    role_id: int | None = None
     is_active: bool | None = None
     password: str | None = None
 
 
 class UserResponse(UserBase):
     id: int
+    role_id: int | None = None
     created_at: datetime
     updated_at: datetime
 

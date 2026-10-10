@@ -1,9 +1,9 @@
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
-from app.dependencies.auth import get_current_active_user, require_roles
+from app.dependencies.auth import require_permission
 from app.dependencies.database import get_db
-from app.models.user import User, UserRole
+from app.models.user import User
 from app.schemas.common import APIResponse, PaginatedResponse
 from app.schemas.customer import (
     CustomerDetailResponse,
@@ -20,7 +20,7 @@ router = APIRouter(prefix="/customers", tags=["Customer CRM"])
 
 @router.get("/summary", response_model=APIResponse[CustomerSummary])
 def get_customer_summary(
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(require_permission("CUSTOMERS", "VIEW")),
     db: Session = Depends(get_db),
 ):
     """Get customer KPI summary: totals, segments, revenue."""
@@ -40,7 +40,7 @@ def list_customers(
     search: str | None = Query(None, description="Search by name, phone, or email"),
     segment: str | None = Query(None, description="Filter by segment: VIP, REGULAR, LAPSED, NEW, ALL"),
     sort_by: str = Query("total_spent", description="Sort by: total_spent, total_orders, last_order, name, newest"),
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(require_permission("CUSTOMERS", "VIEW")),
     db: Session = Depends(get_db),
 ):
     """List customers with search, segment filter, and flexible sorting."""
@@ -64,7 +64,7 @@ def list_customers(
 @router.get("/{customer_id}", response_model=APIResponse[CustomerDetailResponse])
 def get_customer(
     customer_id: int,
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(require_permission("CUSTOMERS", "VIEW")),
     db: Session = Depends(get_db),
 ):
     """Retrieve full 360° customer profile with order history and preferences."""
@@ -81,7 +81,7 @@ def get_customer(
 def update_customer(
     customer_id: int,
     payload: CustomerUpdate,
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(require_permission("CUSTOMERS", "UPDATE")),
     db: Session = Depends(get_db),
 ):
     """Update customer contact details or internal notes."""
@@ -98,7 +98,7 @@ def update_customer(
 def add_customer_note(
     customer_id: int,
     payload: CustomerNoteCreate,
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(require_permission("CUSTOMERS", "CREATE")),
     db: Session = Depends(get_db),
 ):
     """Append a timestamped internal CRM note to a customer profile."""
@@ -116,7 +116,7 @@ def get_customer_orders(
     customer_id: int,
     page: int = Query(1, ge=1),
     page_size: int = Query(10, ge=1, le=50),
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(require_permission("CUSTOMERS", "VIEW")),
     db: Session = Depends(get_db),
 ):
     """Get paginated order history for a specific customer."""
@@ -133,7 +133,7 @@ def get_customer_orders(
 
 @router.post("/refresh-segments", response_model=APIResponse[dict])
 def refresh_segments(
-    current_user: User = Depends(require_roles([UserRole.ADMIN, UserRole.MANAGER])),
+    current_user: User = Depends(require_permission("CUSTOMERS", "CREATE")),
     db: Session = Depends(get_db),
 ):
     """Batch-refresh all customer segments based on recency and spend rules."""

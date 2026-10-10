@@ -19,6 +19,7 @@ from app.api.v1.packaging.router import router as packaging_router
 from app.api.v1.public.router import router as public_router
 from app.api.v1.restock.router import router as restock_router
 from app.api.v1.reviews.router import router as reviews_router
+from app.api.v1.roles.router import router as roles_router
 from app.api.v1.users.router import router as users_router
 from app.api.v1.website.router import router as website_router
 
@@ -44,6 +45,8 @@ api_router.include_router(analytics_router)
 api_router.include_router(integrations_router)
 # Phase 14: Audit, Security & Hardening
 api_router.include_router(audit_router)
+# Role-Based Access Control: roles, permissions & user role assignment
+api_router.include_router(roles_router)
 # Phase 15: Business Hours, Holidays & Scheduled Shop Status
 api_router.include_router(business_hours_router)
 # Phase 16: Website Storefront Config & Promo Codes

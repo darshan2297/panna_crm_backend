@@ -3,9 +3,9 @@
 from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.orm import Session
 
-from app.dependencies.auth import get_current_active_user, require_roles
+from app.dependencies.auth import require_permission
 from app.dependencies.database import get_db
-from app.models.user import User, UserRole
+from app.models.user import User
 from app.schemas.common import APIResponse
 from app.schemas.faq import FAQCreate, FAQResponse, FAQUpdate
 from app.services.faq_service import FAQService
@@ -17,7 +17,7 @@ router = APIRouter(prefix="/faqs", tags=["FAQs"])
 def list_faqs(
     active_only: bool = True,
     category: str | None = Query(None, description="Filter by category"),
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(require_permission("FAQS", "VIEW")),
     db: Session = Depends(get_db),
 ):
     """List all FAQs (active only by default)."""
@@ -33,7 +33,7 @@ def list_faqs(
 @router.post("", response_model=APIResponse[FAQResponse], status_code=status.HTTP_201_CREATED)
 def create_faq(
     payload: FAQCreate,
-    current_user: User = Depends(require_roles([UserRole.ADMIN, UserRole.MANAGER])),
+    current_user: User = Depends(require_permission("FAQS", "CREATE")),
     db: Session = Depends(get_db),
 ):
     """Create a new FAQ (Admin/Manager only)."""
@@ -50,7 +50,7 @@ def create_faq(
 def update_faq(
     faq_id: int,
     payload: FAQUpdate,
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(require_permission("FAQS", "UPDATE")),
     db: Session = Depends(get_db),
 ):
     """Update a FAQ."""
@@ -66,7 +66,7 @@ def update_faq(
 @router.delete("/{faq_id}", response_model=APIResponse[None])
 def delete_faq(
     faq_id: int,
-    current_user: User = Depends(require_roles([UserRole.ADMIN])),
+    current_user: User = Depends(require_permission("FAQS", "DELETE")),
     db: Session = Depends(get_db),
 ):
     """Delete a FAQ (Admin only)."""

@@ -3,9 +3,9 @@
 from fastapi import APIRouter, Depends, status
 from sqlalchemy.orm import Session
 
-from app.dependencies.auth import get_current_active_user, require_roles
+from app.dependencies.auth import require_permission
 from app.dependencies.database import get_db
-from app.models.user import User, UserRole
+from app.models.user import User
 from app.schemas.common import APIResponse
 from app.schemas.review import ReviewCreate, ReviewResponse, ReviewUpdate
 from app.services.review_service import ReviewService
@@ -16,7 +16,7 @@ router = APIRouter(prefix="/reviews", tags=["Reviews"])
 @router.get("", response_model=APIResponse[list[ReviewResponse]])
 def list_reviews(
     active_only: bool = True,
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(require_permission("REVIEWS", "VIEW")),
     db: Session = Depends(get_db),
 ):
     """List all reviews (active only by default)."""
@@ -32,7 +32,7 @@ def list_reviews(
 @router.post("", response_model=APIResponse[ReviewResponse], status_code=status.HTTP_201_CREATED)
 def create_review(
     payload: ReviewCreate,
-    current_user: User = Depends(require_roles([UserRole.ADMIN, UserRole.MANAGER])),
+    current_user: User = Depends(require_permission("REVIEWS", "CREATE")),
     db: Session = Depends(get_db),
 ):
     """Create a new review (Admin/Manager only)."""
@@ -49,7 +49,7 @@ def create_review(
 def update_review(
     review_id: int,
     payload: ReviewUpdate,
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(require_permission("REVIEWS", "UPDATE")),
     db: Session = Depends(get_db),
 ):
     """Update a review."""
@@ -65,7 +65,7 @@ def update_review(
 @router.delete("/{review_id}", response_model=APIResponse[None])
 def delete_review(
     review_id: int,
-    current_user: User = Depends(require_roles([UserRole.ADMIN])),
+    current_user: User = Depends(require_permission("REVIEWS", "DELETE")),
     db: Session = Depends(get_db),
 ):
     """Delete a review (Admin only)."""

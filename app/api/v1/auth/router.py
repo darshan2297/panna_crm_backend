@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 
 from app.dependencies.auth import get_current_active_user
 from app.dependencies.database import get_db
-from app.models.user import User
+from app.models.user import User, UserRole
 from app.schemas.auth import (
     ChangePasswordRequest,
     LoginRequest,
@@ -12,6 +12,7 @@ from app.schemas.auth import (
     UpdateProfileRequest,
 )
 from app.schemas.common import APIResponse
+from app.schemas.role import UserPermissionResponse
 from app.schemas.user import UserResponse
 from app.services.auth_service import AuthService
 from app.services.user_service import UserService
@@ -43,6 +44,51 @@ def get_me(current_user: User = Depends(get_current_active_user)):
         success=True,
         message="User profile retrieved",
         data=UserResponse.model_validate(current_user),
+    )
+
+
+@router.get("/permissions", response_model=APIResponse[UserPermissionResponse])
+def get_my_permissions(current_user: User = Depends(get_current_active_user)):
+    """The caller's effective permissions, for frontend feature gating.
+
+    Returns a flat list of "MODULE:ACTION" strings so the client can hide links
+    and disable buttons without hard-coding a copy of the permission matrix.
+    """
+    role = current_user.role_rel
+    if role is None:
+        # Pre-RBAC account with no role assigned: mirror the legacy fallback.
+        perms = ["DASHBOARD:VIEW"]
+        if current_user.role == UserRole.ADMIN.value:
+            perms = ["*"]
+        elif current_user.role == UserRole.MANAGER.value:
+            perms = ["DASHBOARD:VIEW", "ORDERS:VIEW", "ORDERS:CREATE", "ORDERS:UPDATE"]
+        else:
+            perms = ["DASHBOARD:VIEW", "ORDERS:VIEW", "ORDERS:UPDATE"]
+        return APIResponse(
+            success=True,
+            message="Permissions retrieved",
+            data=UserPermissionResponse(
+                role=current_user.role,
+                role_id=None,
+                is_superuser=current_user.role == UserRole.ADMIN.value,
+                permissions=perms,
+            ),
+        )
+
+    if role.is_superuser:
+        perms = ["*"]
+    else:
+        perms = sorted({f"{p.module}:{p.action}" for p in role.permissions})
+
+    return APIResponse(
+        success=True,
+        message="Permissions retrieved",
+        data=UserPermissionResponse(
+            role=role.name,
+            role_id=role.id,
+            is_superuser=role.is_superuser,
+            permissions=perms,
+        ),
     )
 
 

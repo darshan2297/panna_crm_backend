@@ -1,9 +1,9 @@
 from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.orm import Session
 
-from app.dependencies.auth import get_current_active_user, require_roles
+from app.dependencies.auth import require_permission
 from app.dependencies.database import get_db
-from app.models.user import User, UserRole
+from app.models.user import User
 from app.schemas.common import APIResponse
 from app.schemas.menu import (
     MenuCategoryCreate,
@@ -28,7 +28,7 @@ router = APIRouter(prefix="/menu", tags=["Menu Management"])
 @router.get("/summary", response_model=APIResponse[MenuSummaryResponse])
 def get_menu_summary(
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(require_permission("MENU", "VIEW")),
 ):
     """Retrieve operational menu KPI summary metrics."""
     service = MenuService(db)
@@ -43,7 +43,7 @@ def get_menu_summary(
 @router.post("/calculate-prices", response_model=APIResponse[PlatformPriceCalculationResponse])
 def calculate_platform_prices(
     payload: PlatformPriceCalculationRequest,
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(require_permission("MENU", "CREATE")),
 ):
     """Calculate platform pricing rules (Website: 0%, Zomato: +22%, Swiggy: +20%)."""
     calc = MenuService.calculate_platform_prices(payload.base_price)
@@ -61,7 +61,7 @@ def calculate_platform_prices(
 def list_menu_categories(
     is_active: bool | None = None,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(require_permission("MENU", "VIEW")),
 ):
     """List all menu categories with item counts and display order."""
     service = MenuService(db)
@@ -77,7 +77,7 @@ def list_menu_categories(
 def create_menu_category(
     payload: MenuCategoryCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles([UserRole.ADMIN, UserRole.MANAGER])),
+    current_user: User = Depends(require_permission("MENU", "CREATE")),
 ):
     """Create a new menu category (Admin/Manager only)."""
     service = MenuService(db)
@@ -94,7 +94,7 @@ def update_menu_category(
     category_id: int,
     payload: MenuCategoryUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles([UserRole.ADMIN, UserRole.MANAGER])),
+    current_user: User = Depends(require_permission("MENU", "UPDATE")),
 ):
     """Update category details or active status."""
     service = MenuService(db)
@@ -110,7 +110,7 @@ def update_menu_category(
 def delete_menu_category(
     category_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles([UserRole.ADMIN, UserRole.MANAGER])),
+    current_user: User = Depends(require_permission("MENU", "DELETE")),
 ):
     """Delete a menu category and its items (Admin only)."""
     service = MenuService(db)
@@ -135,7 +135,7 @@ def list_menu_items(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=200),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(require_permission("MENU", "VIEW")),
 ):
     """List menu items with filters and portion prices."""
     service = MenuService(db)
@@ -159,7 +159,7 @@ def list_menu_items(
 def get_menu_item(
     item_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(require_permission("MENU", "VIEW")),
 ):
     """Get full details of a specific menu item with portions."""
     service = MenuService(db)
@@ -175,7 +175,7 @@ def get_menu_item(
 def create_menu_item(
     payload: MenuItemCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles([UserRole.ADMIN, UserRole.MANAGER])),
+    current_user: User = Depends(require_permission("MENU", "CREATE")),
 ):
     """Create a new menu dish with portion sizes and platform pricing (Admin/Manager only)."""
     service = MenuService(db)
@@ -192,7 +192,7 @@ def update_menu_item(
     item_id: int,
     payload: MenuItemUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles([UserRole.ADMIN, UserRole.MANAGER])),
+    current_user: User = Depends(require_permission("MENU", "UPDATE")),
 ):
     """Update menu dish metadata, portions, or platform prices."""
     service = MenuService(db)
@@ -209,7 +209,7 @@ def toggle_item_availability(
     item_id: int,
     payload: MenuItemAvailabilityUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(require_permission("MENU", "UPDATE")),
 ):
     """Fast 1-click in-stock / out-of-stock toggle (Accessible to Staff, Managers, Admins)."""
     service = MenuService(db)
@@ -226,7 +226,7 @@ def toggle_item_availability(
 def delete_menu_item(
     item_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles([UserRole.ADMIN, UserRole.MANAGER])),
+    current_user: User = Depends(require_permission("MENU", "DELETE")),
 ):
     """Delete a menu item and its portions."""
     service = MenuService(db)

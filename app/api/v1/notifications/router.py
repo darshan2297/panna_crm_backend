@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import NotFoundException
-from app.dependencies.auth import get_current_active_user
+from app.dependencies.auth import get_current_active_user, require_permission
 from app.dependencies.database import get_db
 from app.models.user import User
 from app.schemas.common import APIResponse, PaginatedResponse
@@ -26,7 +26,7 @@ def list_notifications(
     page: int = Query(1, ge=1, description="Page number"),
     page_size: int = Query(20, ge=1, le=100, description="Items per page"),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(require_permission("DASHBOARD", "VIEW")),
 ):
     """Retrieve notifications with pagination, read filter, type, and severity."""
     offset = (page - 1) * page_size
@@ -56,7 +56,7 @@ def list_notifications(
 @router.get("/unread-count", response_model=APIResponse[dict])
 def get_unread_count(
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(require_permission("DASHBOARD", "VIEW")),
 ):
     """Get fast count of unread notifications for badge indicator."""
     count = NotificationService.get_unread_count(db)
@@ -70,7 +70,7 @@ def get_unread_count(
 @router.get("/summary", response_model=APIResponse[NotificationSummary])
 def get_notification_summary(
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(require_permission("DASHBOARD", "VIEW")),
 ):
     """Get breakdown summary of alerts (critical, warnings, stock breaches)."""
     summary = NotificationService.get_summary(db)
@@ -85,7 +85,7 @@ def get_notification_summary(
 def mark_notification_as_read(
     id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(require_permission("DASHBOARD", "VIEW")),
 ):
     """Mark a notification as read."""
     notif = NotificationService.mark_as_read(db, id)
