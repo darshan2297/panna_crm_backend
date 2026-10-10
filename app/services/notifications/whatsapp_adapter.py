@@ -3,12 +3,16 @@ from datetime import UTC, datetime
 from typing import Any
 
 from app.services.notifications.base_adapter import BaseNotificationAdapter
+from app.services.whatsapp_service import whatsapp_service
 
 
 class WhatsAppNotificationAdapter(BaseNotificationAdapter):
     """
     WhatsApp Adapter for kitchen low-stock & restock alerts.
-    Generates structured WhatsApp markdown messages and clickable https://wa.me/ links.
+
+    When a Gupshup API key is configured, messages are sent through the
+    WhatsApp API. Otherwise (or on failure) a clickable wa.me deep link is
+    generated so the recipient still gets a working action.
     """
 
     DEFAULT_KITCHEN_PHONE = "+919876543210"
@@ -60,20 +64,31 @@ class WhatsAppNotificationAdapter(BaseNotificationAdapter):
         metadata: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         target_phone = recipient or self.DEFAULT_KITCHEN_PHONE
-        # Sanitize phone: remove +, spaces, dashes
-        clean_phone = "".join(filter(str.isdigit, target_phone))
-        if not clean_phone.startswith("91") and len(clean_phone) == 10:
-            clean_phone = f"91{clean_phone}"
 
         formatted_text = self.format_message(title, message, severity, metadata)
         encoded_text = urllib.parse.quote(formatted_text)
+        clean_phone = "".join(filter(str.isdigit, target_phone))
+        if not clean_phone.startswith("91") and len(clean_phone) == 10:
+            clean_phone = f"91{clean_phone}"
         wa_url = f"https://wa.me/{clean_phone}?text={encoded_text}"
+
+        # Try sending via the Gupshup WhatsApp API first; fall back to a
+        # wa.me deep link when disabled or when the gateway rejects it.
+        result = whatsapp_service.send_text(target_phone, formatted_text)
+
+        status_map = {
+            "DELIVERED": "DELIVERED",
+            "LINK_GENERATED": "MOCK_DELIVERED",
+            "FAILED": "MOCK_DELIVERED",
+        }
 
         return {
             "channel": "WHATSAPP",
             "recipient": target_phone,
-            "status": "MOCK_DELIVERED",
+            "status": status_map.get(result["status"], "MOCK_DELIVERED"),
             "preview_content": formatted_text,
-            "action_url": wa_url,
+            "action_url": result.get("action_url") or wa_url,
             "dispatched_at": datetime.now(UTC),
+            "provider_message_id": result.get("provider_message_id"),
+            "provider_note": result.get("message"),
         }

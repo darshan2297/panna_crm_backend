@@ -20,6 +20,8 @@ class OrderItemResponse(OrderItemBase):
     id: int
     order_id: int
     total_price: float
+    cost_price: float = 0.0
+    is_free: bool = False
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
@@ -71,6 +73,12 @@ class OrderCancelRequest(BaseModel):
     reason: str = Field(..., min_length=3, max_length=500)
 
 
+class OrderRefundRequest(BaseModel):
+    # None => full refund; otherwise a positive amount in INR (<= order total).
+    amount: float | None = Field(None, ge=0)
+    reason: str = Field("", max_length=500)
+
+
 class OrderResponse(BaseModel):
     id: int
     order_number: str
@@ -82,10 +90,19 @@ class OrderResponse(BaseModel):
     subtotal: float
     discount: float
     delivery_fee: float
+    transaction_fee: float = 0.0
+    vas_fee: float = 0.0
+    other_expense: float = 0.0
     tax: float
     total_amount: float
     order_status: str
     payment_status: str
+    gateway: str | None = None
+    gateway_payment_id: str | None = None
+    gateway_order_id: str | None = None
+    refund_id: str | None = None
+    refund_amount: float | None = None
+    refunded_at: datetime | None = None
     items_summary: str | None = None
     notes: str | None = None
     created_at: datetime
@@ -101,6 +118,8 @@ class OrderDetailResponse(OrderResponse):
     customer: CustomerBriefResponse | None = None
     platform_display: str = ""
     estimated_commission: float = 0.0
+    # Aggregate food cost (sum of item cost_price × qty) for margin reporting.
+    food_cost: float = 0.0
 
     model_config = ConfigDict(from_attributes=True)
 

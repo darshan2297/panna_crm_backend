@@ -28,6 +28,11 @@ class StorefrontConfigResponse(BaseModel):
     whatsapp: str | None = None
     email: str | None = None
     operating_hours: str | None = None
+    transaction_fee_percent: float = 0.0
+    gst_percent: float = 5.0
+    gst_number: str | None = None
+    vas_fee: float = 0.0
+    other_expense: float = 0.0
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -55,6 +60,11 @@ class StorefrontConfigUpdate(BaseModel):
     whatsapp: str | None = None
     email: str | None = None
     operating_hours: str | None = None
+    transaction_fee_percent: float | None = Field(None, ge=0, le=100)
+    gst_percent: float | None = Field(None, ge=0, le=100)
+    gst_number: str | None = Field(None, max_length=50)
+    vas_fee: float | None = Field(None, ge=0)
+    other_expense: float | None = Field(None, ge=0)
 
 
 class PaymentMethodResponse(BaseModel):

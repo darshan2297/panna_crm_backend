@@ -25,6 +25,18 @@ class Settings(BaseSettings):
         "http://127.0.0.1:3001",
     ]
 
+    # Razorpay Payment Gateway (secret stays server-side only)
+    RAZORPAY_KEY_ID: str = ""
+    RAZORPAY_SECRET_KEY: str = ""
+
+    # WhatsApp (Gupshup / BSP) — API key stays server-side only
+    WHATSAPP_API_KEY: str = ""
+    WHATSAPP_API_URL: str = "https://api.gupshup.io/sm/api/v1/msg"
+    WHATSAPP_SENDER_ID: str = ""  # Registered Gupshup sender / phone number
+
+    # External CRM base URL used by backend services (for self-calls)
+    CRM_BASE_URL: str = "http://localhost:8000"
+
     @field_validator("BACKEND_CORS_ORIGINS", mode="before")
     @classmethod
     def assemble_cors_origins(cls, v: str | list[str]) -> list[str]:

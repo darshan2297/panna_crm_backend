@@ -23,6 +23,10 @@ class WebsiteOrderCreateRequest(BaseModel):
     customer: WebsiteCustomerInput
     items: list[WebsiteOrderItemInput] = Field(..., min_length=1, description="Order must contain at least 1 item")
     payment_method: str = Field("COD", description="Payment method: COD, ONLINE_UPI, CARD")
+    order_type: str | None = Field(
+        None,
+        description="Fulfilment type: DELIVERY or PICKUP",
+    )
     delivery_fee: float = Field(0.0, ge=0.0)
     discount: float = Field(0.0, ge=0.0)
     discount_type: str | None = Field(None, description="Promo discount type: fixed, percentage, free_item, free_delivery")
@@ -38,6 +42,8 @@ class WebsiteOrderCreateResponse(BaseModel):
     subtotal: float
     discount: float
     delivery_fee: float
+    transaction_fee: float = 0.0
+    vas_fee: float = 0.0
     tax: float
     total_amount: float
     estimated_delivery_minutes: int
@@ -87,4 +93,50 @@ class PaymentWebhookResponse(BaseModel):
     previous_payment_status: str
     new_payment_status: str
     order_status: str
+    message: str
+
+
+class PaymentCreateRequest(BaseModel):
+    order_number: str = Field(..., min_length=3, max_length=60, description="CRM order number (PB-W-...)")
+    amount: float = Field(..., gt=0, description="Order total in INR")
+    customer_name: str = Field("", max_length=150)
+    customer_phone: str = Field("", max_length=20)
+
+
+class PaymentCreateResponse(BaseModel):
+    success: bool
+    order_number: str
+    razorpay_order_id: str | None = None
+    amount: int = Field(..., description="Amount in paise")
+    currency: str = "INR"
+    key_id: str | None = None
+    gateway: str = "RAZORPAY"
+    message: str
+
+
+class OrderTypeStatsResponse(BaseModel):
+    """Real fulfilment preference split (delivery vs pickup) from actual orders."""
+
+    delivery_count: int = 0
+    pickup_count: int = 0
+    total_orders: int = 0
+    delivery_pct: int = 0
+    pickup_pct: int = 0
+    # True only when there is enough real data for the percentages to be meaningful.
+    has_data: bool = False
+
+
+class PaymentVerifyRequest(BaseModel):
+    order_number: str = Field(..., min_length=3, max_length=60)
+    razorpay_order_id: str = Field(..., min_length=1)
+    razorpay_payment_id: str = Field(..., min_length=1)
+    razorpay_signature: str = Field(..., min_length=1)
+
+
+class PaymentVerifyResponse(BaseModel):
+    success: bool
+    order_number: str
+    payment_status: str
+    order_status: str
+    payment_id: str | None = None
     message: str

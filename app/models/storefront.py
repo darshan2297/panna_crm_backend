@@ -38,6 +38,17 @@ class StorefrontConfig(Base, TimestampMixin):
     email = Column(String(255), nullable=True)
     operating_hours = Column(String(255), nullable=True)
 
+    # Online-payment surcharges & notification fee (VAS).
+    #   transaction_fee_percent: % added to ONLINE orders (payment gateway fee)
+    #   gst_percent:            GST % added to ONLINE orders only
+    #   vas_fee:                flat per-order fee for WhatsApp/SMS/Email
+    transaction_fee_percent = Column(Float, default=0.0, nullable=False)
+    gst_percent = Column(Float, default=5.0, nullable=False)
+    gst_number = Column(String(50), nullable=True)
+    vas_fee = Column(Float, default=0.0, nullable=False)
+    # Flat per-order "other expenses" component used in the margin formula.
+    other_expense = Column(Float, default=0.0, nullable=False)
+
 
 class PaymentMethodConfig(Base, TimestampMixin):
     __tablename__ = "payment_method_configs"

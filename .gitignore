@@ -149,3 +149,5 @@ cython_debug/
 panna_crm.db
 app.db
 *.db-journal
+
+rzp-test-key.csv

@@ -11,6 +11,7 @@ from app.schemas.order import (
     OrderCancelRequest,
     OrderCreate,
     OrderDetailResponse,
+    OrderRefundRequest,
     OrderResponse,
     OrderStatusSummary,
     OrderUpdateStatus,
@@ -148,4 +149,26 @@ def cancel_order(
         success=True,
         message=f"Order {cancelled.order_number} has been cancelled",
         data=cancelled,
+    )
+
+
+@router.post("/{order_id}/refund", response_model=APIResponse[OrderDetailResponse])
+def refund_order(
+    order_id: int,
+    payload: OrderRefundRequest,
+    current_user: User = Depends(require_permission("ORDERS", "CREATE")),
+    db: Session = Depends(get_db),
+):
+    """Refund a PAID online order via the Razorpay gateway."""
+    service = OrderService(db)
+    refunded = service.refund_order(
+        order_id=order_id,
+        amount=payload.amount,
+        reason=payload.reason,
+        current_user=current_user,
+    )
+    return APIResponse(
+        success=True,
+        message=f"Refund of ₹{(payload.amount if payload.amount is not None else refunded.total_amount):,.2f} initiated for order {refunded.order_number}",
+        data=refunded,
     )

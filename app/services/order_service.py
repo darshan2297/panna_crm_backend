@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import UTC, datetime
 
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
@@ -24,6 +24,7 @@ from app.schemas.public_order import (
     WebsiteOrderCreateRequest,
     WebsiteOrderCreateResponse,
 )
+from app.services.payment_service import payment_service
 from app.services.platform_adapter import get_platform_adapter
 from app.socket_manager import emit_event
 from app.utils.pagination import calc_pages
@@ -135,10 +136,22 @@ class OrderService:
                 quantity=item.quantity,
                 unit_price=item.unit_price,
                 total_price=item.total_price,
+                cost_price=item.cost_price,
+                is_free=item.is_free,
                 created_at=item.created_at,
             )
             for item in order.items
         ]
+
+        # Aggregate food cost for margin (free items cost the kitchen nothing).
+        food_cost = round(
+            sum(
+                float(item.cost_price or 0.0) * item.quantity
+                for item in order.items
+                if not item.is_free
+            ),
+            2,
+        )
 
         history_resp = [
             OrderStatusHistoryResponse(
@@ -164,10 +177,19 @@ class OrderService:
             subtotal=order.subtotal,
             discount=order.discount,
             delivery_fee=order.delivery_fee,
+            transaction_fee=order.transaction_fee,
+            vas_fee=order.vas_fee,
+            other_expense=order.other_expense,
             tax=order.tax,
             total_amount=order.total_amount,
             order_status=order.order_status,
             payment_status=order.payment_status,
+            gateway=order.gateway,
+            gateway_payment_id=order.gateway_payment_id,
+            gateway_order_id=order.gateway_order_id,
+            refund_id=order.refund_id,
+            refund_amount=order.refund_amount,
+            refunded_at=order.refunded_at,
             items_summary=order.items_summary,
             notes=order.notes,
             created_at=order.created_at,
@@ -178,6 +200,7 @@ class OrderService:
             customer=customer_brief,
             platform_display=adapter.display_name,
             estimated_commission=commission,
+            food_cost=food_cost,
         )
 
     def create_order(
@@ -387,6 +410,89 @@ class OrderService:
         )
         return self.get_order_details(order.id)
 
+    def refund_order(
+        self,
+        order_id: int,
+        amount: float | None = None,
+        reason: str = "",
+        current_user: User | None = None,
+    ) -> OrderDetailResponse:
+        """Refund a PAID online order through the Razorpay API."""
+        order = self.repo.get_by_id_with_relations(order_id)
+        if not order:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Order with ID {order_id} not found",
+            )
+
+        if order.payment_status != PaymentStatus.PAID.value:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Only orders with PAID payment status can be refunded",
+            )
+
+        if not order.gateway_payment_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="No gateway payment reference recorded for this order",
+            )
+
+        if amount is not None and amount <= 0:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Refund amount must be greater than zero",
+            )
+
+        if amount is not None and amount > float(order.total_amount or 0):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Refund amount cannot exceed the order total",
+            )
+
+        # Issue the refund through Razorpay (secret stays server-side).
+        try:
+            refund_result = payment_service.refund_payment(
+                order.gateway_payment_id, amount
+            )
+        except Exception as exc:
+            logger.error(
+                "Razorpay refund failed for order %s: %s", order.order_number, exc
+            )
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="Payment gateway refund failed. Please try again.",
+            )
+
+        refund_amount = float(refund_result.get("amount", 0)) / 100
+        order.payment_status = PaymentStatus.REFUNDED.value
+        order.refund_id = str(refund_result.get("id") or "") or None
+        order.refund_amount = refund_amount
+        order.refunded_at = datetime.now(UTC).replace(tzinfo=None)
+        self.db.commit()
+
+        changed_by = current_user.full_name if current_user else "Staff"
+        self.repo.add_status_history(
+            order_id=order.id,
+            previous_status=order.order_status,
+            new_status=order.order_status,
+            changed_by_name=changed_by,
+            notes=(
+                f"Refund of ₹{refund_amount:,.2f} issued via Razorpay "
+                f"(refund_id: {refund_result.get('id')}). Reason: {reason or 'n/a'}"
+            ),
+        )
+
+        emit_event(
+            "order_refunded",
+            {
+                "id": order.id,
+                "order_number": order.order_number,
+                "refund_amount": refund_amount,
+                "refund_id": refund_result.get("id"),
+            },
+        )
+        return self.get_order_details(order.id)
+
     def get_order_stats_summary(
         self,
         date_from: datetime | None = None,
@@ -430,15 +536,40 @@ class OrderService:
                 detail=detail,
             )
 
+        # Snapshot the menu food-cost onto each line so historical margin is
+        # never rewritten when menu prices are later edited. Matched by
+        # item name + portion size (falls back to 0 when unmatched).
+        from app.models.menu import MenuItem
+
+        cost_lookup: dict[tuple[str, str], float] = {}
+        try:
+            for _m in self.db.query(MenuItem).all():
+                _mname = (_m.name or "").strip().lower()
+                for _p in (_m.portions or []):
+                    cost_lookup[
+                        (_mname, (_p.portion_size or "").strip().lower())
+                    ] = float(_p.cost_price or 0.0)
+        except Exception:
+            cost_lookup = {}
+
         db_items: list[OrderItem] = []
         subtotal = 0.0
+        food_cost = 0.0
         summary_parts: list[str] = []
 
         for item_data in payload.items:
             item_total = round(item_data.unit_price * item_data.quantity, 2)
+            unit_cost = cost_lookup.get(
+                (
+                    (item_data.item_name or "").strip().lower(),
+                    (item_data.portion_size or "").strip().lower(),
+                ),
+                0.0,
+            )
             # Complimentary promo gifts never contribute to the payable subtotal.
             if not item_data.is_free:
                 subtotal += item_total
+                food_cost += round(unit_cost * item_data.quantity, 2)
             summary_parts.append(
                 f"{item_data.quantity}x {item_data.item_name} ({item_data.portion_size})"
                 + (" [FREE]" if item_data.is_free else "")
@@ -451,6 +582,7 @@ class OrderService:
                     quantity=item_data.quantity,
                     unit_price=item_data.unit_price,
                     total_price=item_total,
+                    cost_price=unit_cost,
                     is_free=item_data.is_free,
                 )
             )
@@ -472,12 +604,54 @@ class OrderService:
                 summary_parts.append(f"1x {payload.free_item_name} (FREE)")
 
         subtotal = round(subtotal, 2)
-        # Website prices are GST-inclusive. The storefront sends tax=0, so
-        # back-calculate the GST component from the grand total:
-        #   base = total / 1.05,  gst = total - base
-        # e.g. ₹629 total → ₹599.05 base + ₹29.95 GST (5%).
-        total_amount = round(subtotal - payload.discount + payload.delivery_fee, 2)
-        tax = round(total_amount - (total_amount / 1.05), 2)
+
+        # Pricing model (tax-inclusive / reverse calculation):
+        #   Menu prices are the FINAL all-inclusive price the customer pays (e.g.
+        #   a ₹149 dish). GST, the gateway fee and VAS are all *inside* that ₹149
+        #   — none of them are added on top. They are only backed OUT internally
+        #   for reporting & margin.
+        #   Transaction fee + VAS apply to EVERY order (Online, COD, Pickup) as
+        #   internal costs. The transaction-fee base is the amount that actually
+        #   goes through the gateway: txn_base = (goods − discount) + delivery,
+        #   so delivery raises the fee and a discount lowers it.
+        #   "other_expense" is likewise internal (margin only), never charged.
+        # The customer bill is simply: goods (tax-inclusive) + delivery.
+        # Everything is computed here, server-side, from the CRM config so
+        # the checkout total can never be tampered with client-side.
+        from app.models.storefront import StorefrontConfig
+
+        cfg = self.db.query(StorefrontConfig).first()
+        txn_fee_pct = float(getattr(cfg, "transaction_fee_percent", 0.0) or 0.0)
+        gst_pct = float(getattr(cfg, "gst_percent", 5.0) or 5.0)
+        vas_fee = round(float(getattr(cfg, "vas_fee", 0.0) or 0.0), 2)
+        other_expense = round(float(getattr(cfg, "other_expense", 0.0) or 0.0), 2)
+
+        # Online vs offline is still needed to decide the initial payment
+        # flow (online stays PENDING until Razorpay confirms), but the
+        # transaction fee + VAS now apply to every order regardless.
+        payment_method_upper = payload.payment_method.upper()
+        is_online = (
+            "ONLINE" in payment_method_upper
+            or "UPI" in payment_method_upper
+            or "CARD" in payment_method_upper
+        )
+
+        goods_incl = round(subtotal - payload.discount, 2)  # tax-inclusive goods
+        delivery = round(payload.delivery_fee, 2)
+        gst_divisor = 1 + (gst_pct / 100)
+        goods_excl = round(goods_incl / gst_divisor, 2)  # GST removed
+        tax = round(goods_incl - goods_excl, 2)  # GST included (report only)
+        txn_base = round(goods_incl + delivery, 2)  # amount going through gateway
+        transaction_fee = round(txn_base * txn_fee_pct / 100, 2)
+        # The customer pays ONLY the menu price (+ delivery). The menu price
+        # already includes GST and absorbs the gateway fee + VAS, so those are
+        # internal costs — never added to the customer's bill.
+        total_amount = round(goods_incl + delivery, 2)
+        # Net margin contribution (analytics): total charged − GST − fees − food
+        margin_contribution = round(
+            total_amount - tax - transaction_fee - vas_fee - other_expense - food_cost,
+            2,
+        )
 
         # Auto-create or link customer
         customer = self.repo.get_or_create_customer(
@@ -490,11 +664,14 @@ class OrderService:
 
         order_number = self.repo.generate_next_order_number(OrderPlatform.WEBSITE.value)
 
-        payment_method_upper = payload.payment_method.upper()
-        if "ONLINE" in payment_method_upper or "UPI" in payment_method_upper or "CARD" in payment_method_upper:
-            payment_status = PaymentStatus.PAID.value
-            initial_status = OrderStatus.CONFIRMED.value
-            initial_note = f"Prepaid order placed via Website ({payload.payment_method})"
+        if is_online:
+            # Online orders start PENDING and only become PAID/CONFIRMED
+            # after the Razorpay payment is verified (via /payments/verify
+            # or the Razorpay webhook). This prevents confirming orders
+            # before real money is received.
+            payment_status = PaymentStatus.PENDING.value
+            initial_status = OrderStatus.NEW.value
+            initial_note = f"Online order placed via Website ({payload.payment_method}) - awaiting payment confirmation"
         else:
             payment_status = PaymentStatus.PENDING.value
             initial_status = OrderStatus.NEW.value
@@ -510,6 +687,10 @@ class OrderService:
             subtotal=subtotal,
             discount=payload.discount,
             delivery_fee=payload.delivery_fee,
+            order_type=(payload.order_type or "").upper() or None,
+            transaction_fee=transaction_fee,
+            vas_fee=vas_fee,
+            other_expense=other_expense,
             tax=tax,
             total_amount=total_amount,
             order_status=initial_status,
@@ -553,6 +734,8 @@ class OrderService:
             subtotal=order.subtotal,
             discount=order.discount,
             delivery_fee=order.delivery_fee,
+            transaction_fee=order.transaction_fee,
+            vas_fee=order.vas_fee,
             tax=order.tax,
             total_amount=order.total_amount,
             estimated_delivery_minutes=35,
@@ -646,12 +829,47 @@ class OrderService:
         new_payment_status = payload.payment_status.upper()
         order.payment_status = new_payment_status
 
+        # Record the gateway + transaction reference so a refund can be
+        # issued later through the Razorpay API.
+        if payload.payment_gateway:
+            order.gateway = payload.payment_gateway.upper()
+        if payload.transaction_id:
+            order.gateway_payment_id = payload.transaction_id
+        # The gateway order id is carried in the notes as "Razorpay order order_xxx";
+        # lift it out so the CRM can show the full transaction trail.
+        if payload.notes and "razorpay order " in payload.notes.lower():
+            token = payload.notes.lower().split("razorpay order ", 1)[1].strip().split()[0]
+            if token:
+                order.gateway_order_id = token
+
         auto_advanced = False
         if new_payment_status == PaymentStatus.PAID.value and order.order_status == OrderStatus.NEW.value:
             order.order_status = OrderStatus.CONFIRMED.value
             auto_advanced = True
 
         self.db.commit()
+
+        # Send a WhatsApp confirmation to the customer the first time the
+        # payment flips to PAID. Best-effort: a failure here must never
+        # break the webhook/verify response.
+        if new_payment_status == PaymentStatus.PAID.value and prev_payment_status != PaymentStatus.PAID.value:
+            try:
+                from app.services.whatsapp_service import (
+                    format_order_confirmation,
+                    whatsapp_service,
+                )
+
+                msg = format_order_confirmation(
+                    order_number=order.order_number,
+                    customer_name=order.customer_name or "Customer",
+                    total_amount=float(order.total_amount or 0),
+                    items_summary=order.items_summary or "Your order",
+                    delivery_address=order.delivery_address or "",
+                    eta_minutes=35,
+                )
+                whatsapp_service.send_text(order.customer_phone or "", msg)
+            except Exception as exc:  # pragma: no cover - non-critical
+                logger.warning("WhatsApp order confirmation failed: %s", exc)
 
         note_text = f"Payment Webhook: {new_payment_status} via {payload.payment_gateway}"
         if payload.transaction_id:

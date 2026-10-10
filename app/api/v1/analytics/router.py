@@ -10,6 +10,7 @@ from app.schemas.analytics import (
     OrderVelocityResponse,
     PlatformBreakdownResponse,
     PLSummaryResponse,
+    RevenueBreakdownResponse,
     SalesTrendResponse,
     TopItemsResponse,
 )
@@ -52,6 +53,17 @@ def get_platform_breakdown(
     service = AnalyticsService(db)
     data = service.get_platform_breakdown(days=days)
     return APIResponse(success=True, message="Platform revenue breakdown retrieved", data=data)
+
+
+@router.get("/revenue-breakdown", response_model=APIResponse[RevenueBreakdownResponse])
+def get_revenue_breakdown(
+    days: int = Query(30, ge=1, le=365),
+    current_user: User = Depends(require_permission("ANALYTICS", "VIEW")),
+    db: Session = Depends(get_db),
+):
+    service = AnalyticsService(db)
+    data = service.get_revenue_breakdown(days=days)
+    return APIResponse(success=True, message="Revenue bifurcation KPIs retrieved", data=data)
 
 
 @router.get("/order-velocity", response_model=APIResponse[OrderVelocityResponse])

@@ -1,4 +1,7 @@
-from fastapi import APIRouter, Depends, Path, status
+import json
+import logging
+
+from fastapi import APIRouter, Depends, HTTPException, Path, Request, status
 from sqlalchemy.orm import Session
 
 from app.dependencies.database import get_db
@@ -7,6 +10,11 @@ from app.schemas.contact_inquiry import ContactInquiryCreate
 from app.schemas.storefront import PromoCodeValidateRequest, PromoRedemptionRequest
 from app.schemas.public_customer import PhoneExistsRequest
 from app.schemas.public_order import (
+    OrderTypeStatsResponse,
+    PaymentCreateRequest,
+    PaymentCreateResponse,
+    PaymentVerifyRequest,
+    PaymentVerifyResponse,
     PaymentWebhookRequest,
     PaymentWebhookResponse,
     PublicOrderTrackResponse,
@@ -16,7 +24,10 @@ from app.schemas.public_order import (
 from app.services.contact_inquiry_service import ContactInquiryService
 from app.services.customer_service import CustomerService
 from app.services.order_service import OrderService
+from app.services.payment_service import payment_service
 from app.services.storefront_service import StorefrontService
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/public", tags=["Public Storefront Gateway"])
 
@@ -79,6 +90,175 @@ def payment_status_webhook(
         message=webhook_res.message,
         data=webhook_res,
     )
+
+
+@router.post("/payments/create", response_model=APIResponse[PaymentCreateResponse])
+def create_payment(
+    payload: PaymentCreateRequest,
+    db: Session = Depends(get_db),
+):
+    """
+    Public Endpoint: Create a Razorpay order for a website order.
+
+    - Validates the order exists and the amount matches (anti-tamper)
+    - Creates a Razorpay order server-side (secret never leaves backend)
+    - Returns razorpay_order_id + key_id so the storefront can open checkout
+    """
+    service = OrderService(db)
+    order = service.repo.get_by_order_number(payload.order_number.strip().upper())
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+
+    # Anti-tamper: the customer must pay exactly the order total.
+    if abs(order.total_amount - payload.amount) > 1.0:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Amount mismatch: order total is {order.total_amount}",
+        )
+
+    # Online orders start PENDING; they only become PAID after verification.
+    try:
+        result = payment_service.create_order(
+            order_number=payload.order_number.strip().upper(),
+            amount=payload.amount,
+            customer_name=payload.customer_name,
+            customer_phone=payload.customer_phone,
+        )
+    except Exception as exc:
+        logger.error("Razorpay order creation failed for %s: %s", payload.order_number, exc)
+        raise HTTPException(
+            status_code=502,
+            detail="Payment gateway is currently unavailable. Please retry or choose Cash on Delivery.",
+        )
+
+    if result is None:
+        # Gateway not configured -> test/mock mode (COD-style manual confirm).
+        return APIResponse(
+            success=True,
+            message="Payment gateway not configured; order placed in test mode",
+            data=PaymentCreateResponse(
+                success=True,
+                order_number=payload.order_number.strip().upper(),
+                razorpay_order_id=None,
+                amount=int(round(payload.amount * 100)),
+                currency="INR",
+                key_id=None,
+                gateway="MOCK",
+                message="No gateway configured; order placed in test mode",
+            ),
+        )
+
+    return APIResponse(
+        success=True,
+        message="Razorpay order created successfully",
+        data=PaymentCreateResponse(
+            success=True,
+            order_number=payload.order_number.strip().upper(),
+            razorpay_order_id=result["razorpay_order_id"],
+            amount=result["amount"],
+            currency=result["currency"],
+            key_id=result["key_id"],
+            gateway="RAZORPAY",
+            message="Razorpay order created successfully",
+        ),
+    )
+
+
+@router.post("/payments/verify", response_model=APIResponse[PaymentVerifyResponse])
+def verify_payment(
+    payload: PaymentVerifyRequest,
+    db: Session = Depends(get_db),
+):
+    """
+    Public Endpoint: Verify a completed Razorpay checkout.
+
+    - Verifies the HMAC signature using the server-side secret
+    - On success, marks the order PAID and CONFIRMED in the CRM
+    """
+    if not payment_service.verify_payment_signature(
+        payload.razorpay_order_id,
+        payload.razorpay_payment_id,
+        payload.razorpay_signature,
+    ):
+        raise HTTPException(status_code=400, detail="Invalid payment signature")
+
+    service = OrderService(db)
+    webhook_payload = PaymentWebhookRequest(
+        payment_status="PAID",
+        transaction_id=payload.razorpay_payment_id,
+        payment_gateway="RAZORPAY",
+        notes=f"Razorpay order {payload.razorpay_order_id}",
+    )
+    result = service.process_payment_webhook(payload.order_number.strip().upper(), webhook_payload)
+
+    return APIResponse(
+        success=True,
+        message="Payment verified and order confirmed",
+        data=PaymentVerifyResponse(
+            success=True,
+            order_number=result.order_number,
+            payment_status=result.new_payment_status,
+            order_status=result.order_status,
+            payment_id=payload.razorpay_payment_id,
+            message="Payment verified successfully",
+        ),
+    )
+
+
+@router.post("/payments/webhook")
+async def razorpay_webhook(
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """
+    Razorpay server-to-server webhook.
+
+    - Verifies the X-Razorpay-Signature header against the raw body
+    - Processes payment.captured events to confirm orders
+    - Idempotent: safe for Razorpay to retry delivery
+    """
+    raw_body = await request.body()
+    signature = request.headers.get("x-razorpay-signature", "")
+
+    if not payment_service.verify_webhook_signature(raw_body, signature):
+        raise HTTPException(status_code=400, detail="Invalid webhook signature")
+
+    try:
+        payload = json.loads(raw_body)
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=400, detail="Invalid JSON")
+
+    event = payload.get("event", "")
+    if event != "payment.captured":
+        # Only capture events confirm a successful payment.
+        return {"success": True, "message": f"Event '{event}' acknowledged (no action)"}
+
+    payment = payload.get("payload", {}).get("payment", {}).get("entity", {})
+    notes = payment.get("notes", {}) or {}
+    order_number = notes.get("order_number")
+    payment_id = payment.get("id")
+    gateway_status = payment.get("status")  # "captured"
+
+    if not order_number:
+        return {"success": False, "message": "No order_number in webhook notes"}
+
+    payment_status = "PAID" if gateway_status == "captured" else "PENDING"
+
+    service = OrderService(db)
+    webhook_payload = PaymentWebhookRequest(
+        payment_status=payment_status,
+        transaction_id=payment_id,
+        payment_gateway="RAZORPAY",
+        notes=f"Webhook: {gateway_status}",
+    )
+    result = service.process_payment_webhook(str(order_number).strip().upper(), webhook_payload)
+
+    return {
+        "success": True,
+        "order_number": result.order_number,
+        "payment_status": payment_status,
+        "message": "Webhook processed",
+    }
 
 
 @router.get("/shop-status")
@@ -332,4 +512,57 @@ def get_public_delivery_areas(db: Session = Depends(get_db)):
         success=True,
         message="Delivery areas retrieved successfully",
         data=[DeliveryAreaResponse.model_validate(a) for a in areas],
+    )
+
+
+@router.get("/order-type-stats", response_model=APIResponse[OrderTypeStatsResponse])
+def get_order_type_stats(db: Session = Depends(get_db)):
+    """Public Endpoint: Real delivery-vs-pickup preference split.
+
+    Computed from actual delivered website orders (cancelled orders excluded).
+    Returns `has_data=False` until there is enough volume for the percentages
+    to be meaningful, so the storefront can hide the figures rather than show
+    invented numbers.
+    """
+    from sqlalchemy import func
+
+    from app.models.order import Order, OrderPlatform, OrderStatus
+
+    rows = (
+        db.query(Order.order_type, func.count(Order.id))
+        .filter(
+            Order.platform == OrderPlatform.WEBSITE.value,
+            Order.order_type.isnot(None),
+            Order.order_status != OrderStatus.CANCELLED.value,
+        )
+        .group_by(Order.order_type)
+        .all()
+    )
+
+    delivery = 0
+    pickup = 0
+    for raw_type, count in rows:
+        t = str(raw_type or "").upper()
+        if t == "DELIVERY":
+            delivery = int(count or 0)
+        elif t == "PICKUP":
+            pickup = int(count or 0)
+
+    total = delivery + pickup
+    # Require a minimum sample so we never publish a percentage off 1-2 orders.
+    has_data = total >= 10
+    delivery_pct = int(round(delivery / total * 100)) if total else 0
+    pickup_pct = int(round(pickup / total * 100)) if total else 0
+
+    return APIResponse(
+        success=True,
+        message="Order type stats retrieved",
+        data=OrderTypeStatsResponse(
+            delivery_count=delivery,
+            pickup_count=pickup,
+            total_orders=total,
+            delivery_pct=delivery_pct,
+            pickup_pct=pickup_pct,
+            has_data=has_data,
+        ),
     )

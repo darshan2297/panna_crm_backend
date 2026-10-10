@@ -19,6 +19,7 @@ from app.schemas.analytics import (
     PlatformBreakdownMetric,
     PlatformBreakdownResponse,
     PLSummaryResponse,
+    RevenueBreakdownResponse,
     SalesTrendItem,
     SalesTrendResponse,
     TopItemMetric,
@@ -231,6 +232,80 @@ class AnalyticsService:
             total_gross_revenue=round(total_gross, 2),
             total_commission=round(total_comm, 2),
             total_net_revenue=round(total_net, 2),
+        )
+
+    def get_revenue_breakdown(self, days: int = 30) -> RevenueBreakdownResponse:
+        """Aggregate the reverse-calculation revenue KPIs for a period.
+
+        Prices are tax-inclusive, so GST is backed OUT of the goods amounts for
+        reporting. Transaction fee + VAS are added on top on every order.
+        Margin = revenue − GST − txn fee − VAS − other expenses − food cost.
+        """
+        from app.models.order import OrderStatus
+
+        start_date_naive = (
+            datetime.now(UTC) - timedelta(days=days)
+        ).replace(tzinfo=None)
+        not_cancelled = Order.order_status != OrderStatus.CANCELLED.value
+
+        row = (
+            self.db.query(
+                func.count(Order.id),
+                func.coalesce(func.sum(Order.subtotal), 0.0),
+                func.coalesce(func.sum(Order.delivery_fee), 0.0),
+                func.coalesce(func.sum(Order.tax), 0.0),
+                func.coalesce(func.sum(Order.transaction_fee), 0.0),
+                func.coalesce(func.sum(Order.vas_fee), 0.0),
+                func.coalesce(func.sum(Order.other_expense), 0.0),
+                func.coalesce(func.sum(Order.total_amount), 0.0),
+            )
+            .filter(Order.created_at >= start_date_naive, not_cancelled)
+            .one()
+        )
+
+        # Food cost from the per-line cost snapshot (free items excluded).
+        food_cost = (
+            self.db.query(
+                func.coalesce(func.sum(OrderItem.cost_price * OrderItem.quantity), 0.0)
+            )
+            .join(Order, Order.id == OrderItem.order_id)
+            .filter(
+                Order.created_at >= start_date_naive,
+                not_cancelled,
+                OrderItem.is_free.is_(False),
+            )
+            .scalar()
+            or 0.0
+        )
+
+        total_orders = int(row[0] or 0)
+        total_subtotal = float(row[1] or 0.0)
+        total_delivery = float(row[2] or 0.0)
+        total_gst = float(row[3] or 0.0)
+        total_txn = float(row[4] or 0.0)
+        total_vas = float(row[5] or 0.0)
+        total_other = float(row[6] or 0.0)
+        total_revenue = float(row[7] or 0.0)
+        total_food_cost = float(food_cost or 0.0)
+
+        total_margin = round(
+            total_revenue - total_gst - total_txn - total_vas - total_other - total_food_cost,
+            2,
+        )
+        margin_pct = round((total_margin / total_revenue * 100), 1) if total_revenue > 0 else 0.0
+
+        return RevenueBreakdownResponse(
+            total_orders=total_orders,
+            total_subtotal=round(total_subtotal, 2),
+            total_delivery=round(total_delivery, 2),
+            total_gst=round(total_gst, 2),
+            total_transaction_fee=round(total_txn, 2),
+            total_vas_fee=round(total_vas, 2),
+            total_other_expense=round(total_other, 2),
+            total_food_cost=round(total_food_cost, 2),
+            total_revenue=round(total_revenue, 2),
+            total_margin=total_margin,
+            margin_pct=margin_pct,
         )
 
     def get_order_velocity(self, days: int = 30) -> OrderVelocityResponse:

@@ -111,3 +111,24 @@ class PLSummaryResponse(BaseModel):
     gross_profit: float
     gross_profit_margin_pct: float
     orders_count: int
+
+
+class RevenueBreakdownResponse(BaseModel):
+    """Reverse-calculation revenue bifurcation KPIs for a period.
+
+    Menu/order prices are tax-inclusive, so GST is *backed out* of the goods
+    amount (not added on top). Transaction fee and VAS are added on top and
+    apply to every order. Margin = revenue − GST − txn − VAS − other − food.
+    """
+
+    total_orders: int = 0
+    total_subtotal: float = 0.0  # sum of goods subtotals (tax-inclusive)
+    total_delivery: float = 0.0
+    total_gst: float = 0.0  # GST backed out of the goods amounts
+    total_transaction_fee: float = 0.0
+    total_vas_fee: float = 0.0
+    total_other_expense: float = 0.0
+    total_food_cost: float = 0.0
+    total_revenue: float = 0.0  # what customers were charged (sum of totals)
+    total_margin: float = 0.0
+    margin_pct: float = 0.0

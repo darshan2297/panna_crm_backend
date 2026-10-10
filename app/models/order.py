@@ -1,6 +1,6 @@
 import enum
 
-from sqlalchemy import Boolean, Column, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import relationship
 
 from app.core.database import Base
@@ -45,6 +45,19 @@ class Order(Base, TimestampMixin):
     delivery_fee = Column(Float, default=0.0, nullable=False)
     tax = Column(Float, default=0.0, nullable=False)
     total_amount = Column(Float, default=0.0, nullable=False)
+    # Online-payment surcharges & notification fee (VAS) recorded per order.
+    transaction_fee = Column(Float, default=0.0, nullable=False)
+    vas_fee = Column(Float, default=0.0, nullable=False)
+    other_expense = Column(Float, default=0.0, nullable=False)  # snapshot, margin only (not charged)
+    # Gateway reference used to issue refunds (e.g. Razorpay payment_id).
+    gateway = Column(String(50), nullable=True)
+    order_type = Column(String(20), nullable=True)  # DELIVERY / PICKUP
+    gateway_payment_id = Column(String(100), nullable=True, index=True)
+    gateway_order_id = Column(String(100), nullable=True)
+    # Structured refund data (surfaced in the CRM order detail).
+    refund_id = Column(String(100), nullable=True)
+    refund_amount = Column(Float, nullable=True)
+    refunded_at = Column(DateTime, nullable=True)
 
     order_status = Column(String(50), default=OrderStatus.NEW.value, index=True, nullable=False)
     payment_status = Column(String(50), default=PaymentStatus.PAID.value, index=True, nullable=False)
@@ -74,6 +87,7 @@ class OrderItem(Base, TimestampMixin):
     quantity = Column(Integer, default=1, nullable=False)
     unit_price = Column(Float, default=0.0, nullable=False)
     total_price = Column(Float, default=0.0, nullable=False)
+    cost_price = Column(Float, default=0.0, nullable=False)  # food cost snapshot (per unit)
     is_free = Column(Boolean, default=False, nullable=False)
 
     order = relationship("Order", back_populates="items")
